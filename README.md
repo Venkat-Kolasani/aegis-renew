@@ -87,8 +87,25 @@ browser never talks to Prava with a secret key.
 6. Confirm the mandate is Active in the Prava dashboard. Do not paste secret
    keys, network tokens, dynamic CVVs, or raw `mdt_` ids into the repo.
 
-Merchant defaults are the JOINT-2 **DEMO** registrar placeholders until
-VENKAT-3 lands a checkout-capable merchant URL.
+Merchant defaults are the JOINT-2 **DEMO** registrar (`Aegis Demo Registrar`,
+`$18/year`). Checkout is completed by the VENKAT-3 DEMO adapter
+(`POST /api/demo/registrar/checkout`), not a live registrar storefront.
+
+### DEMO registrar checkout (VENKAT-3)
+
+- Quote: `GET /api/demo/registrar/quote` → fixed `$18.00 USD` domain renewal.
+- Checkout: `POST /api/demo/registrar/checkout` accepts a Prava network token +
+  dynamic CVV shape, returns a sanitized `merchant_order_ref`, and never stores
+  credentials.
+- Adapter: charge active DEMO mandate → DEMO checkout → report `APPROVED` to
+  Prava (`backend/payments/checkout_adapter.py`).
+- Unit tests mock Prava. The live sandbox smoke is **not** in normal CI:
+
+```bash
+RUN_PRAVA_SMOKE=1 python -m pytest backend/tests/test_prava_demo_smoke.py -q
+```
+
+Sanitized smoke evidence (when run): [`docs/evidence/venkat3-demo-checkout-proof.json`](docs/evidence/venkat3-demo-checkout-proof.json).
 
 ## Configuration and database
 
@@ -143,7 +160,7 @@ Sanitized evidence: [`docs/evidence/joint2-commerce-proof.json`](docs/evidence/j
 | Merchant-locked **yearly** mandate | **Active** — cap `$18.00 USD`, scope `listed`, merchant `Aegis Demo Registrar` |
 | Active-mandate lookup | Returned via `GET /v1/mandates?customer_id=…` |
 | Mandate charge | Credentials minted (`token` + `dynamicCvv` + expiry); status `awaiting_result` |
-| Merchant checkout | **Not completed** (see below) |
+| Merchant checkout | **Not completed** in JOINT-2 (placeholder URL; no registrar checkout) |
 | Charge report | `DECLINED` reported honestly — Visa confirmation `SUCCESS`, mandate remains `active` |
 
 Dashboard observation matched the API: order **Authorized**, mandate **Active / Yearly / $18.00**.
@@ -160,13 +177,27 @@ Dashboard observation matched the API: order **Authorized**, mandate **Active / 
 ### Selected merchant path and product claim
 
 - **Selected path:** self-owned **DEMO** registrar merchant (domain renewal — `$18/year`), clearly marked `# DEMO:` / `// DEMO:` in code and named here.
-- **Why:** no real registrar/hosting/SSL vendor with UCP/guest agent checkout was found; the interim mandate destination `https://example.com` cannot run checkout.
-- **Product claim (unchanged intent):** Aegis keeps **autonomous yearly renewal under a user-approved, merchant-locked Prava mandate**. Application payment routes (VENKAT-2/3, JOINT-3) proceed only after the DEMO merchant completes a real sandbox checkout with a Prava network token and reports `APPROVED`.
-- **Not claimed yet:** completed merchant checkout / completed autonomous renewal.
+- **Why:** no real registrar/hosting/SSL vendor with UCP/guest agent checkout was found; the interim mandate destination `https://example.com` cannot run a third-party checkout.
+- **Product claim:** Aegis keeps **autonomous yearly renewal under a user-approved, merchant-locked Prava mandate**. DEMO checkout accepts a real Prava network token; full product `POST /api/payments/execute` lands in JOINT-3.
+- **DEMO simplifications:** merchant is self-owned (`backend/payments/demo_*`); mandate merchant URL remains `https://example.com`; checkout runs in-process via Aegis routes, not a third-party registrar.
+
+## Phase 0 — VENKAT-3 DEMO checkout proof
+
+Sanitized evidence: [`docs/evidence/venkat3-demo-checkout-proof.json`](docs/evidence/venkat3-demo-checkout-proof.json).
+
+Re-run: `RUN_PRAVA_SMOKE=1 python -m pytest backend/tests/test_prava_demo_smoke.py -q`
+
+| Step | Result |
+|---|---|
+| Active DEMO mandate | Listed merchant `Aegis Demo Registrar`, yearly, `$18` |
+| Mandate charge | Real sandbox credentials minted |
+| DEMO merchant checkout | Completed order ref `DEMO-REN-*` |
+| Charge report | `APPROVED` to Prava |
 
 ### Production access
 
-Do **not** submit the Prava production form until sandbox mandate → charge → **completed** DEMO (or real) merchant checkout → `APPROVED` report all succeed. Form: https://tally.so/r/eqBNZE
+Sandbox mandate → charge → completed DEMO checkout → `APPROVED` is evidenced.
+You may now submit the Prava production form if you want prod keys: https://tally.so/r/eqBNZE
 
 ## Build disclosure
 
@@ -174,5 +205,5 @@ The Aegis idea and public integration research existed before the event. All
 application code in this repository is being written during the hackathon build
 window. Payment claims require real Prava sandbox evidence and a completed
 merchant checkout; no payment outcome is mocked. JOINT-2 proved mandate setup
-and credential minting; merchant checkout completion is deferred to the DEMO
-merchant path above.
+and credential minting. VENKAT-3 adds the disclosed DEMO registrar checkout
+path and a CI-excluded sandbox smoke that asserts completed checkout + `APPROVED`.

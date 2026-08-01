@@ -18,7 +18,7 @@ export type MandateUiState =
 export type MandateSetupProps = {
   domains: MandateDomainOption[];
   apiBaseUrl?: string;
-  /** DEMO defaults from JOINT-2 until the self-owned registrar URL is live. */
+  /** DEMO defaults: Aegis Demo Registrar (checkout via /api/demo/registrar/*). */
   defaultMerchantName?: string;
   defaultMerchantUrl?: string;
   defaultMerchantCountry?: string;
@@ -78,7 +78,7 @@ function initialDomainId(domains: MandateDomainOption[]): number | null {
 export default function MandateSetup({
   domains,
   apiBaseUrl,
-  // DEMO: JOINT-2 selected self-owned demo registrar; placeholder URL until VENKAT-3.
+  // DEMO: JOINT-2/VENKAT-3 self-owned registrar; mandate URL stays example.com.
   defaultMerchantName = "Aegis Demo Registrar",
   defaultMerchantUrl = "https://example.com",
   defaultMerchantCountry = "US",
@@ -225,9 +225,9 @@ export default function MandateSetup({
           mandate id, network token, or dynamic CVV.
         </p>
         <p className="text-xs text-amber-200/80">
-          {/* DEMO: JOINT-2 merchant path */}
-          DEMO merchant defaults: Aegis Demo Registrar. Swap the URL after the VENKAT-3 checkout
-          adapter is live.
+          {/* DEMO: JOINT-2 / VENKAT-3 merchant path */}
+          DEMO merchant: Aegis Demo Registrar ($18/year). Checkout completes via the Aegis DEMO
+          adapter, not a live registrar storefront.
         </p>
       </div>
 
