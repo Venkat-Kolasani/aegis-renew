@@ -1,0 +1,24 @@
+{
+  "proof_id": "VENKAT-3",
+  "recorded_at_utc": "2026-08-01T09:56:55.775717+00:00",
+  "environment": "sandbox",
+  "merchant": {
+    "path": "self_owned_demo_merchant",
+    "name": "Aegis Demo Registrar",
+    "product": "Domain renewal \u2014 $18/year",
+    "checkout_surface": "POST /api/demo/registrar/checkout (DEMO stand-in)"
+  },
+  "flow": {
+    "mandate_charge": "credentials_minted",
+    "merchant_checkout_completed": true,
+    "merchant_order_ref_prefix": "DEMO-REN-",
+    "amount": "18.00",
+    "currency": "USD",
+    "prava_report": "APPROVED",
+    "prava_report_status": "completed"
+  },
+  "notes": [
+    "No network token, dynamic CVV, or raw mdt_/txn ids are stored.",
+    "This smoke is interactive/manual and excluded from normal CI."
+  ]
+}

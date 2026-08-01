@@ -34,7 +34,7 @@
     "completed": false,
     "reason": "Destination merchant URL was a placeholder (https://example.com) with no checkout. No real domain registrar/hosting/SSL vendor with UCP or guest agent checkout was found in the discovery timebox (Namecheap/Porkbun/GoDaddy/Hover/Name.com lacked /.well-known/ucp). Prava UCP + Browser Harness currently targets Shopify merchants, not registrars. Charge outcome reported DECLINED because merchant checkout was not completed.",
     "selected_path": "self_owned_demo_merchant",
-    "product_claim": "Keep autonomous yearly renewal under a merchant-locked mandate. VENKAT-3 will implement a clearly marked DEMO registrar checkout that accepts the Prava network token, then remint/bind the mandate to that merchant URL and complete checkout end to end. Do not claim completed merchant checkout until that succeeds."
+    "product_claim": "Keep autonomous yearly renewal under a merchant-locked mandate. Follow-up: VENKAT-3 implements a clearly marked DEMO registrar checkout that accepts the Prava network token and reports APPROVED. See docs/evidence/venkat3-demo-checkout-proof.json after the CI-excluded smoke."
   },
   "production_access": "Do not apply until sandbox mandate + charge + completed DEMO/real merchant checkout + report APPROVED all succeed."
 }

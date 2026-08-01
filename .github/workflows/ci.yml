@@ -13,7 +13,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install -r backend/requirements.txt
-      - run: python -m pytest -q
+      # Smoke (RUN_PRAVA_SMOKE=1) is interactive and excluded from CI.
+      - run: python -m pytest -q -m "not smoke"
 
   frontend:
     runs-on: ubuntu-latest

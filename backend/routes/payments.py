@@ -177,3 +177,95 @@ def create_mandate(body: MandateRequest) -> MandateResponse:
 def execute_payment(_: ExecuteRequest) -> PlaceholderResponse:
     """Execute a covered renewal when the payment service is implemented."""
     return PlaceholderResponse(detail="Payment execution is not implemented yet.")
+
+
+class DemoQuoteResponse(BaseModel):
+    """DEMO: Fixed registrar renewal quote."""
+
+    merchant_name: str
+    merchant_url: str
+    merchant_country: str
+    product_description: str
+    amount: str
+    currency: str
+
+
+class DemoCheckoutRequest(BaseModel):
+    """DEMO: Checkout body that accepts a Prava network-token credential."""
+
+    domain: str = Field(min_length=1)
+    token: str = Field(min_length=16, max_length=16)
+    dynamic_cvv: str = Field(min_length=3, max_length=4)
+    expiry_month: str = Field(min_length=1, max_length=2)
+    expiry_year: str = Field(min_length=4, max_length=4)
+    amount: str
+    currency: str = Field(min_length=3, max_length=3)
+
+
+class DemoCheckoutResponse(BaseModel):
+    """DEMO: Sanitized completed checkout response."""
+
+    completed: bool
+    merchant_order_ref: str
+    amount: str
+    currency: str
+    product_description: str
+    completed_at: str
+
+
+@router.get("/demo/registrar/quote", response_model=DemoQuoteResponse)
+def demo_registrar_quote() -> DemoQuoteResponse:
+    """DEMO: Return the fixed domain-renewal quote for Aegis Demo Registrar."""
+    from backend.payments.demo_merchant import get_demo_renewal_quote
+
+    quote = get_demo_renewal_quote()
+    return DemoQuoteResponse(
+        merchant_name=quote.merchant_name,
+        merchant_url=quote.merchant_url,
+        merchant_country=quote.merchant_country,
+        product_description=quote.product_description,
+        amount=f"{quote.amount:.2f}",
+        currency=quote.currency,
+    )
+
+
+@router.post("/demo/registrar/checkout", response_model=DemoCheckoutResponse)
+def demo_registrar_checkout(body: DemoCheckoutRequest) -> DemoCheckoutResponse:
+    """DEMO: Complete a domain-renewal checkout with a Prava network token."""
+    from backend.payments.demo_merchant import (
+        DemoCheckoutError,
+        complete_demo_renewal_checkout,
+    )
+
+    try:
+        amount = Decimal(body.amount).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="amount must be a valid decimal",
+        ) from exc
+
+    try:
+        result = complete_demo_renewal_checkout(
+            domain=body.domain,
+            token=body.token,
+            dynamic_cvv=body.dynamic_cvv,
+            expiry_month=body.expiry_month,
+            expiry_year=body.expiry_year,
+            amount=amount,
+            currency=body.currency.upper(),
+        )
+    except DemoCheckoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return DemoCheckoutResponse(
+        completed=result.completed,
+        merchant_order_ref=result.merchant_order_ref,
+        amount=f"{result.amount:.2f}",
+        currency=result.currency,
+        product_description=result.product_description,
+        completed_at=result.completed_at,
+    )
