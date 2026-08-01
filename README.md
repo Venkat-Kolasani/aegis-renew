@@ -37,6 +37,21 @@ malformed RDAP responses raise a classified `DomainLookupError`. Callers can
 log or isolate one failed lookup without losing successful results from a
 larger scan. Unit tests mock every HTTP request and require no internet access.
 
+### Certificate expiry detection
+
+`get_cert_expiry()` validates a bare hostname and queries crt.sh JSON as its
+primary source. It filters certificates by exact or single-label wildcard
+coverage, deduplicates results, and selects the latest currently valid match;
+when every matching certificate is expired, it returns the latest expired one.
+
+If crt.sh is unavailable, times out, or returns no usable certificate data,
+Aegis performs a bounded direct TLS handshake with SNI and reports that result
+with `source="tls"`. Invalid input, TLS timeouts, unreachable endpoints,
+malformed peer data, and missing certificates raise a classified
+`CertLookupError`, allowing future batch scans to isolate failures gracefully.
+Domain renewal does not automatically renew, replace, or repair a TLS
+certificate; TLS expiry is an independent risk signal.
+
 ## Frontend development
 
 ```bash
