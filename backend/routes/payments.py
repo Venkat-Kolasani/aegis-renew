@@ -198,7 +198,7 @@ class DemoCheckoutRequest(BaseModel):
     dynamic_cvv: str = Field(min_length=3, max_length=4)
     expiry_month: str = Field(min_length=1, max_length=2)
     expiry_year: str = Field(min_length=4, max_length=4)
-    amount: str
+    amount: str = Field(min_length=1, max_length=32)
     currency: str = Field(min_length=3, max_length=3)
 
 

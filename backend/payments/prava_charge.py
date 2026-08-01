@@ -95,6 +95,7 @@ def charge_mandate(
     reference: str,
 ) -> MandateChargeResult:
     """Mint single-use credentials against an active mandate."""
+    load_local_env()
     if not mandate_id.startswith("mdt_"):
         raise PravaMandateError("mandate_id must be a Prava mandate id")
     amount_str = f"{amount.quantize(Decimal('0.01')):.2f}"
@@ -167,6 +168,7 @@ def report_mandate_charge(
     amount_paid: Decimal | None = None,
 ) -> MandateReportResult:
     """Report APPROVED or DECLINED for a mandate charge."""
+    load_local_env()
     if txn_status not in {"APPROVED", "DECLINED"}:
         raise PravaMandateError("txn_status must be APPROVED or DECLINED")
 

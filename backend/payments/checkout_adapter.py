@@ -81,29 +81,58 @@ def run_demo_mandate_checkout(
             currency=quote.currency,
         )
     except DemoCheckoutError as exc:
-        report = report_mandate_charge(
-            mandate_id=resolved_mandate_id,
-            transaction_id=charge.transaction_id,
-            txn_status="DECLINED",
-            amount_paid=Decimal("0.00"),
-        )
-        logger.error("DEMO checkout failed; reported DECLINED: %s", exc)
+        checkout_detail = str(exc)
+        report_status: str | None = None
+        try:
+            report = report_mandate_charge(
+                mandate_id=resolved_mandate_id,
+                transaction_id=charge.transaction_id,
+                txn_status="DECLINED",
+                amount_paid=Decimal("0.00"),
+            )
+            report_status = report.status
+            logger.error("DEMO checkout failed; reported DECLINED: %s", checkout_detail)
+        except PravaMandateError as report_exc:
+            logger.error(
+                "DEMO checkout failed (%s); DECLINED report also failed: %s",
+                checkout_detail,
+                report_exc,
+            )
         return DemoRenewalCheckoutOutcome(
             completed=False,
             payment_status="declined",
             merchant_order_ref=None,
             amount=quote.amount,
             currency=quote.currency,
-            prava_report_status=report.status,
-            detail=str(exc),
+            prava_report_status=report_status,
+            detail=checkout_detail,
         )
 
-    report = report_mandate_charge(
-        mandate_id=resolved_mandate_id,
-        transaction_id=charge.transaction_id,
-        txn_status="APPROVED",
-        amount_paid=checkout.amount,
-    )
+    try:
+        report = report_mandate_charge(
+            mandate_id=resolved_mandate_id,
+            transaction_id=charge.transaction_id,
+            txn_status="APPROVED",
+            amount_paid=checkout.amount,
+        )
+    except PravaMandateError as report_exc:
+        logger.error(
+            "DEMO checkout completed but APPROVED report failed: %s",
+            report_exc,
+        )
+        return DemoRenewalCheckoutOutcome(
+            completed=True,
+            payment_status="completed",
+            merchant_order_ref=checkout.merchant_order_ref,
+            amount=checkout.amount,
+            currency=checkout.currency,
+            prava_report_status=None,
+            detail=(
+                "DEMO registrar checkout completed but Prava APPROVED report failed; "
+                "reconcile the mandate charge manually"
+            ),
+        )
+
     return DemoRenewalCheckoutOutcome(
         completed=True,
         payment_status="completed",

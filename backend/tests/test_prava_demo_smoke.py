@@ -5,7 +5,8 @@ Excluded from normal CI. Run manually:
     RUN_PRAVA_SMOKE=1 python -m pytest backend/tests/test_prava_demo_smoke.py -q
 
 Requires root `.env` with sandbox keys and an active DEMO-merchant yearly mandate.
-Writes sanitized evidence to docs/evidence/venkat3-demo-checkout-proof.json.
+Writes sanitized evidence to docs/evidence/venkat3-demo-checkout-proof.json
+(override with PRAVA_SMOKE_EVIDENCE_PATH for a scratch path).
 Never prints network tokens, CVVs, or raw mandate ids.
 """
 
@@ -28,6 +29,13 @@ pytestmark = pytest.mark.smoke
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _EVIDENCE_PATH = _REPO_ROOT / "docs" / "evidence" / "venkat3-demo-checkout-proof.json"
+
+
+def _resolved_evidence_path() -> Path:
+    override = os.environ.get("PRAVA_SMOKE_EVIDENCE_PATH")
+    if override:
+        return Path(override)
+    return _EVIDENCE_PATH
 
 
 def _smoke_enabled() -> bool:
@@ -112,5 +120,6 @@ def test_demo_mandate_checkout_reports_approved() -> None:
             "This smoke is interactive/manual and excluded from normal CI.",
         ],
     }
-    _EVIDENCE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _EVIDENCE_PATH.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+    evidence_path = _resolved_evidence_path()
+    evidence_path.parent.mkdir(parents=True, exist_ok=True)
+    evidence_path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
