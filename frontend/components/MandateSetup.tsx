@@ -50,6 +50,15 @@ export function buildMandateRequestBody(input: {
   };
 }
 
+export function isSafeHttpsUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 type MandateApiResponse = {
   status: string;
   approval_url: string;
@@ -59,6 +68,11 @@ function resolveApiBase(apiBaseUrl?: string): string {
   // Same-origin Next rewrite avoids browser CORS and keeps secrets on the API.
   if (apiBaseUrl && apiBaseUrl.length > 0) return apiBaseUrl.replace(/\/$/, "");
   return "/aegis-api";
+}
+
+function initialDomainId(domains: MandateDomainOption[]): number | null {
+  const first = domains[0];
+  return first && first.id > 0 ? first.id : null;
 }
 
 export default function MandateSetup({
@@ -84,7 +98,7 @@ export default function MandateSetup({
     [domains],
   );
 
-  const [domainId, setDomainId] = useState<number>(sortedDomains[0]?.id ?? 0);
+  const [domainId, setDomainId] = useState<number | null>(() => initialDomainId(sortedDomains));
   const [merchantName, setMerchantName] = useState(defaultMerchantName);
   const [merchantUrl, setMerchantUrl] = useState(defaultMerchantUrl);
   const [merchantCountry, setMerchantCountry] = useState(defaultMerchantCountry);
@@ -99,6 +113,14 @@ export default function MandateSetup({
   );
   const [approvalUrl, setApprovalUrl] = useState<string | null>(initialApprovalUrl);
 
+  const selectedDomainId = useMemo(() => {
+    if (sortedDomains.length === 0) return null;
+    if (domainId !== null && sortedDomains.some((domain) => domain.id === domainId)) {
+      return domainId;
+    }
+    return initialDomainId(sortedDomains);
+  }, [sortedDomains, domainId]);
+
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (state === "loading") return;
@@ -106,6 +128,12 @@ export default function MandateSetup({
     setState("loading");
     setErrorMessage(null);
     setApprovalUrl(null);
+
+    if (selectedDomainId === null || selectedDomainId <= 0) {
+      setState("error");
+      setErrorMessage("Select a valid domain before starting mandate approval.");
+      return;
+    }
 
     const parsedCap = Number(capAmount);
     if (!Number.isFinite(parsedCap) || parsedCap <= 0) {
@@ -120,7 +148,7 @@ export default function MandateSetup({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           buildMandateRequestBody({
-            domainId,
+            domainId: selectedDomainId,
             merchantName,
             merchantUrl,
             merchantCountry,
@@ -146,6 +174,12 @@ export default function MandateSetup({
       }
 
       if (!payload || !("approval_url" in payload) || typeof payload.approval_url !== "string") {
+        setState("error");
+        setErrorMessage("Mandate setup returned an invalid approval URL.");
+        return;
+      }
+
+      if (!isSafeHttpsUrl(payload.approval_url)) {
         setState("error");
         setErrorMessage("Mandate setup returned an invalid approval URL.");
         return;
@@ -202,8 +236,11 @@ export default function MandateSetup({
           <span>Domain</span>
           <select
             className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white"
-            value={domainId}
-            onChange={(event) => setDomainId(Number(event.target.value))}
+            value={selectedDomainId ?? ""}
+            onChange={(event) => {
+              const nextId = Number(event.target.value);
+              setDomainId(Number.isFinite(nextId) && nextId > 0 ? nextId : null);
+            }}
             disabled={state === "loading" || state === "awaiting_approval"}
             required
           >
@@ -285,7 +322,12 @@ export default function MandateSetup({
           <button
             type="submit"
             className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={state === "loading" || state === "awaiting_approval" || !sortedDomains.length}
+            disabled={
+              state === "loading" ||
+              state === "awaiting_approval" ||
+              !sortedDomains.length ||
+              selectedDomainId === null
+            }
           >
             {state === "loading" ? "Creating mandate session…" : "Start passkey approval"}
           </button>
@@ -338,8 +380,7 @@ export default function MandateSetup({
 
       {state === "awaiting_approval" ? (
         <p role="status" className="text-sm text-cyan-100">
-          Approve with your passkey in the Prava window. Use the team sandbox card and OTP{" "}
-          <span className="font-mono">456789</span> if asked.
+          Approve with your passkey in the Prava window. Use the team sandbox card when prompted.
         </p>
       ) : null}
 

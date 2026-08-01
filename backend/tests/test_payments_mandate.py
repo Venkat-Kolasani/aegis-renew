@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +13,11 @@ from backend.db.connection import create_database_engine, create_session_factory
 from backend.db import connection as db_connection
 from backend.db.models import Base, Domain
 from backend.main import create_app
-from backend.payments.prava_mandate import MandateSessionResult, PravaMandateError
+from backend.payments.prava_mandate import (
+    MandateSessionResult,
+    PravaConfigurationError,
+    PravaMandateError,
+)
 
 
 @pytest.fixture()
@@ -70,7 +75,7 @@ def test_create_mandate_returns_approval_url(
     def fake_create(**kwargs: object) -> MandateSessionResult:
         assert kwargs["domain"] == "billing.aegis-demo.test"
         assert kwargs["merchant_name"] == "Aegis Demo Registrar"
-        assert kwargs["cap_amount"] == 18.0
+        assert kwargs["cap_amount"] == Decimal("18.00")
         return MandateSessionResult(
             session_id="ses_test",
             iframe_url="https://sandbox.collect.prava.space/?session=ses_test",
@@ -124,4 +129,43 @@ def test_create_mandate_prava_failure_is_mapped(
     )
     response = client.post("/api/payments/mandate", json=_mandate_body(domain.id))
     assert response.status_code == 502
-    assert "Invalid API key" in response.json()["detail"]
+    assert response.json()["detail"] == "Prava mandate setup failed"
+    assert "Invalid API key" not in response.json()["detail"]
+
+
+def test_create_mandate_prava_configuration_error_returns_503(
+    client: TestClient,
+    mandate_db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    domain = mandate_db.query(Domain).one()
+
+    def fail(**_kwargs: object) -> MandateSessionResult:
+        raise PravaConfigurationError("PRAVA_SECRET_KEY must be a sk_test_/sk_live_ key")
+
+    monkeypatch.setattr(
+        "backend.routes.payments.create_yearly_mandate_session",
+        fail,
+    )
+    response = client.post("/api/payments/mandate", json=_mandate_body(domain.id))
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Prava is not configured"
+
+
+def test_create_mandate_prava_validation_error_returns_400(
+    client: TestClient,
+    mandate_db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    domain = mandate_db.query(Domain).one()
+
+    def fail(**_kwargs: object) -> MandateSessionResult:
+        raise PravaMandateError("VAL_2001: Validation failed", status_code=400)
+
+    monkeypatch.setattr(
+        "backend.routes.payments.create_yearly_mandate_session",
+        fail,
+    )
+    response = client.post("/api/payments/mandate", json=_mandate_body(domain.id))
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid mandate request for Prava"

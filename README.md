@@ -60,12 +60,15 @@ browser never talks to Prava with a secret key.
 
 1. Put sandbox keys only in the ignored root `.env`:
    `PRAVA_SANDBOX_BASE_URL`, `PRAVA_PUBLISHABLE_KEY`, `PRAVA_SECRET_KEY`.
+   For the Next rewrite, set server-only `AEGIS_API_ORIGIN=http://localhost:8000`
+   (defaults to that if unset).
 2. Apply schema and insert at least one domain row matching a fixture id, e.g.
    `billing.aegis-demo.test` as id `2` (mandate setup looks up `domain_id`).
 3. Run API + UI: `uvicorn backend.main:app --reload` and `cd frontend && npm run dev`.
 4. Open the dashboard → **Yearly renewal mandate** → Start passkey approval.
-5. In the Prava window use the **team** sandbox card (expiry `12/30`), OTP
-   `456789`, then complete the passkey prompt.
+5. In the Prava window use the **team** sandbox card (expiry `12/30`) and the
+   sandbox OTP from the Prava docs/team email when asked, then complete the
+   passkey prompt.
 6. Confirm the mandate is Active in the Prava dashboard. Do not paste secret
    keys, network tokens, dynamic CVVs, or raw `mdt_` ids into the repo.
 

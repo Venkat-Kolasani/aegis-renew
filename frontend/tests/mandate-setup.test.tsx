@@ -39,6 +39,7 @@ test("renders mocked awaiting-approval success path", () => {
   assert.match(markup, /Approve with your passkey/);
   assert.match(markup, /Reopen approval/);
   assert.match(markup, /Cancel/);
+  assert.doesNotMatch(markup, /456789/);
 });
 
 test("renders mocked cancellation state", () => {
@@ -60,6 +61,19 @@ test("renders mocked provider failure state", () => {
   );
   assert.match(markup, /data-state="error"/);
   assert.match(markup, /Prava mandate session failed \(HTTP 401\)/);
+});
+
+test("renders mocked expired state", () => {
+  const markup = renderToStaticMarkup(
+    <MandateSetup
+      domains={domains}
+      initialState="expired"
+      initialErrorMessage="The Prava approval session expired. Start again to mint a fresh session."
+    />,
+  );
+  assert.match(markup, /data-state="expired"/);
+  assert.match(markup, /The Prava approval session expired/);
+  assert.match(markup, /Try again/);
 });
 
 test("buildMandateRequestBody locks yearly frequency and normalizes codes", () => {

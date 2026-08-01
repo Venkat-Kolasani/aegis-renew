@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from urllib.parse import urlparse
 
 import httpx
 
@@ -43,6 +45,11 @@ def _prava_base_url() -> str:
     base = os.getenv("PRAVA_SANDBOX_BASE_URL", "").strip().rstrip("/")
     if not base:
         raise PravaConfigurationError("PRAVA_SANDBOX_BASE_URL is required")
+    parsed = urlparse(base)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise PravaConfigurationError(
+            "PRAVA_SANDBOX_BASE_URL must be an https URL with a host"
+        )
     return base
 
 
@@ -62,7 +69,7 @@ def create_yearly_mandate_session(
     merchant_name: str,
     merchant_url: str,
     merchant_country: str,
-    cap_amount: float,
+    cap_amount: Decimal,
     currency: str,
     user_id: str,
     user_email: str,
@@ -75,7 +82,7 @@ def create_yearly_mandate_session(
         merchant_name: Destination merchant display name (mandate lock).
         merchant_url: Destination merchant https URL (mandate lock).
         merchant_country: ISO 3166-1 alpha-2 country code.
-        cap_amount: Per-charge cap in major currency units.
+        cap_amount: Per-charge cap as Decimal (NUMERIC(12, 2) consistent).
         currency: ISO 4217 currency code.
         user_id: Stable customer id for Prava.
         user_email: Customer email for Prava.
@@ -84,7 +91,13 @@ def create_yearly_mandate_session(
     Returns:
         MandateSessionResult with iframe_url for passkey approval.
     """
-    amount = f"{cap_amount:.2f}"
+    try:
+        quantized = Decimal(cap_amount).quantize(Decimal("0.01"))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise PravaMandateError("cap_amount must be a valid decimal amount") from exc
+    if quantized <= 0:
+        raise PravaMandateError("cap_amount must be greater than zero")
+    amount = f"{quantized:.2f}"
     country = merchant_country.strip().upper()
     currency_code = currency.strip().upper()
     body = {
@@ -153,6 +166,9 @@ def create_yearly_mandate_session(
         payload = response.json()
     except ValueError as exc:
         raise PravaMandateError("Prava returned a malformed session payload") from exc
+
+    if not isinstance(payload, dict):
+        raise PravaMandateError("Prava returned a malformed session payload")
 
     session_id = payload.get("session_id")
     iframe_url = payload.get("iframe_url")

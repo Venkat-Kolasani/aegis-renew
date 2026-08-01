@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, HttpUrl
@@ -79,6 +80,24 @@ def _require_domain(domain_id: int) -> Domain:
         ) from exc
 
 
+def _cap_amount_as_decimal(raw_amount: float) -> Decimal:
+    """Convert the request float to a NUMERIC(12, 2)-safe Decimal."""
+    try:
+        # Stringify first to avoid binary float artifacts reaching Prava.
+        quantized = Decimal(str(raw_amount)).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="cap_amount must be a valid decimal amount",
+        ) from exc
+    if quantized <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="cap_amount must be greater than zero",
+        )
+    return quantized
+
+
 @router.post("/payments/mandate", response_model=MandateResponse)
 def create_mandate(body: MandateRequest) -> MandateResponse:
     """Create a merchant-locked yearly Prava mandate and return the approval URL."""
@@ -110,29 +129,42 @@ def create_mandate(body: MandateRequest) -> MandateResponse:
             detail="merchant_url must use https",
         )
 
+    cap_amount = _cap_amount_as_decimal(body.cap_amount)
+
+    # Intentional placeholder identity: Aegis has no end-user auth yet, so Prava
+    # customer ids are derived from the monitored domain row (stable per domain).
+    # Replace with the real Aegis user identity when auth lands.
+    user_id = f"aegis_domain_{domain.id}"
+    user_email = f"aegis+domain-{domain.id}@example.com"
+
     try:
         session = create_yearly_mandate_session(
             domain=domain.domain,
             merchant_name=body.merchant_name.strip(),
             merchant_url=merchant_url,
             merchant_country=country,
-            cap_amount=body.cap_amount,
+            cap_amount=cap_amount,
             currency=currency,
-            user_id=f"aegis_domain_{domain.id}",
-            user_email=f"aegis+domain-{domain.id}@example.com",
+            user_id=user_id,
+            user_email=user_email,
         )
     except PravaConfigurationError as exc:
+        logger.error("Prava configuration error during mandate setup: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
+            detail="Prava is not configured",
         ) from exc
     except PravaMandateError as exc:
-        status_code = status.HTTP_502_BAD_GATEWAY
-        if exc.status_code == 401:
-            status_code = status.HTTP_502_BAD_GATEWAY
-        elif exc.status_code == 400:
-            status_code = status.HTTP_400_BAD_REQUEST
-        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+        logger.error("Prava mandate error during setup: %s", exc)
+        if exc.status_code == 400:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid mandate request for Prava",
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Prava mandate setup failed",
+        ) from exc
 
     return MandateResponse(status="pending_approval", approval_url=session.iframe_url)
 

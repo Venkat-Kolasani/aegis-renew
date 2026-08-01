@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
-const backendOrigin = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(
+// Server-only origin for rewrites; do not expose backend host via NEXT_PUBLIC_*.
+const backendOrigin = (process.env.AEGIS_API_ORIGIN || "http://localhost:8000").replace(
   /\/$/,
   "",
 );
