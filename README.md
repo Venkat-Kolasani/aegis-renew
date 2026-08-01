@@ -113,6 +113,39 @@ reported as uncertain detail and persists `dns_risk=false`. Run takeover-risk
 scans only for hostnames you own or are explicitly authorized to assess; the
 endpoint does not enumerate other subdomains.
 
+### Structured domain ranking
+
+`rank_domains(domain_ids)` reads only the requested domains' normalized name,
+domain and certificate expiry proximity, DNS-risk flag and bounded sanitized
+detail, plus at most two recent recommendations per domain. It submits those
+allowlisted facts in one batch to `gpt-4o-mini` through the OpenAI SDK's strict
+Structured Outputs parsing and returns one typed result per requested ID:
+`domain_id`, integer `criticality_score` from 0–100, `decision` (`auto_renew`,
+`flag_for_review`, or `ignore`), and a bounded reason. Set `OPENAI_API_KEY` in
+the backend process environment; never commit it.
+
+The SDK's own retries are disabled. Aegis makes at most three total attempts,
+retrying only transient connection, timeout, rate-limit, and retryable server
+failures with bounded backoff. Cost controls are one batched request for up to
+20 unique domains, at most 100 total caller-supplied items, two history records
+per domain, bounded input text, and an output budget that scales from a small
+single-result allowance to a 4,096-token ceiling for a full batch.
+
+Invalid caller input does not degrade to a recommendation. A `domain_ids` value
+that is not a list of positive, non-boolean integers—or that exceeds the
+100-item caller limit—raises `RankingError` with `kind="invalid_input"` before
+database or provider access. Missing domains, database or provider failures,
+more than 20 unique domains, refusal, truncated output, invalid model output,
+and mismatched result IDs retain the conservative `flag_for_review` fallback
+without exposing raw error text.
+
+Ranking is advisory, side-effect-free, and cannot spend money: it reads facts
+but does not persist decisions, invoke renewal execution, or mutate domain
+state. TLS and DNS observations affect urgency; they are not separate renewal
+purchases. Deterministic mandate, merchant, quote, currency, and cap checks
+come later, so a recommendation is not proof of spending authority or a
+successful renewal.
+
 ## Frontend development
 
 ```bash
