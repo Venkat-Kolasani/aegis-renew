@@ -28,10 +28,12 @@ cd frontend
 npm run dev
 npm run lint
 npm run build
+npm test
 ```
 
-The Phase 0 frontend is an App Router dashboard shell. Domain and payment
-components are intentionally deferred to their owner-specific prompts.
+The dashboard currently renders contract-shaped domain fixtures. `npm test`
+server-renders the domain list through its empty, loading, and populated states;
+live API data is added in the follow-up dashboard slice.
 
 ## Configuration and database
 
