@@ -157,3 +157,99 @@ export async function scanDomain(
   }
   return parsed;
 }
+
+export type AgentDecision = "auto_renew" | "flag_for_review" | "ignore";
+
+export type RankDecision = {
+  domain_id: number;
+  criticality_score: number;
+  decision: AgentDecision;
+  reason: string;
+};
+
+const RANK_TIMEOUT_MS = 90_000;
+
+const RANK_TIMEOUT_MESSAGE = "Ranking timed out. Try again.";
+const RANK_MALFORMED_MESSAGE = "Rank response was malformed";
+
+function isTimeoutError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const name = (err as { name?: unknown }).name;
+  return name === "TimeoutError" || name === "AbortError";
+}
+
+export function parseRankDecision(value: unknown): RankDecision | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.domain_id !== "number" || !Number.isInteger(row.domain_id) || row.domain_id <= 0) {
+    return null;
+  }
+  if (
+    typeof row.criticality_score !== "number" ||
+    !Number.isInteger(row.criticality_score) ||
+    row.criticality_score < 0 ||
+    row.criticality_score > 100
+  ) {
+    return null;
+  }
+  if (
+    row.decision !== "auto_renew" &&
+    row.decision !== "flag_for_review" &&
+    row.decision !== "ignore"
+  ) {
+    return null;
+  }
+  if (typeof row.reason !== "string" || row.reason.trim().length === 0) {
+    return null;
+  }
+  return {
+    domain_id: row.domain_id,
+    criticality_score: row.criticality_score,
+    decision: row.decision,
+    reason: row.reason,
+  };
+}
+
+export async function rankDomains(
+  domainIds: number[],
+  apiBaseUrl?: string,
+): Promise<RankDecision[]> {
+  let response: Response;
+  try {
+    response = await fetch(`${resolveApiBase(apiBaseUrl)}/agent/rank`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ domain_ids: domainIds }),
+      signal: AbortSignal.timeout(RANK_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (isTimeoutError(err)) {
+      throw new Error(RANK_TIMEOUT_MESSAGE);
+    }
+    throw err;
+  }
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response));
+  }
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error(RANK_MALFORMED_MESSAGE);
+  }
+  if (!Array.isArray(payload)) {
+    throw new Error("Rank response was not an array");
+  }
+  const decisions: RankDecision[] = [];
+  for (const item of payload) {
+    const parsed = parseRankDecision(item);
+    if (!parsed) {
+      throw new Error("Rank response contained a row that does not match the API contract");
+    }
+    decisions.push(parsed);
+  }
+  return decisions;
+}

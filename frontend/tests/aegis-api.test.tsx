@@ -4,7 +4,9 @@ import { test } from "node:test";
 import {
   isValidScanDomain,
   parseDomainSummary,
+  parseRankDecision,
   parseScanResult,
+  rankDomains,
   resolveApiBase,
   type DomainSummary,
 } from "../lib/aegisApi";
@@ -68,6 +70,57 @@ test("parseScanResult accepts dns_risk_detail including null", () => {
   assert.equal(parsed?.expiry_date, null);
 });
 
+test("parseRankDecision accepts contract decisions and rejects invalid rows", () => {
+  const parsed = parseRankDecision({
+    domain_id: 7,
+    criticality_score: 88,
+    decision: "auto_renew",
+    reason: "Expiry is near.",
+  });
+  assert.deepEqual(parsed, {
+    domain_id: 7,
+    criticality_score: 88,
+    decision: "auto_renew",
+    reason: "Expiry is near.",
+  });
+  assert.equal(
+    parseRankDecision({
+      domain_id: 7,
+      criticality_score: 101,
+      decision: "auto_renew",
+      reason: "bad",
+    }),
+    null,
+  );
+  assert.equal(
+    parseRankDecision({
+      domain_id: 0,
+      criticality_score: 40,
+      decision: "ignore",
+      reason: "ok",
+    }),
+    null,
+  );
+  assert.equal(
+    parseRankDecision({
+      domain_id: 7,
+      criticality_score: 40,
+      decision: "renew_now",
+      reason: "ok",
+    }),
+    null,
+  );
+  assert.equal(
+    parseRankDecision({
+      domain_id: 7,
+      criticality_score: 40,
+      decision: "ignore",
+      reason: "   ",
+    }),
+    null,
+  );
+});
+
 test("summarizeDomains counts urgency and DNS risk", () => {
   const today = new Date("2026-08-01T00:00:00Z");
   const domains: DomainSummary[] = [
@@ -94,4 +147,34 @@ test("summarizeDomains counts urgency and DNS risk", () => {
     reviewSoon: 1,
     dnsRisk: 1,
   });
+});
+
+test("rankDomains normalizes timeout and malformed JSON errors", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async () => {
+    const err = new Error("The operation was aborted due to timeout");
+    err.name = "TimeoutError";
+    throw err;
+  }) as typeof fetch;
+  await assert.rejects(
+    () => rankDomains([1], "http://example.test"),
+    (err: unknown) =>
+      err instanceof Error && err.message === "Ranking timed out. Try again.",
+  );
+
+  globalThis.fetch = (async () =>
+    ({
+      ok: true,
+      json: async () => {
+        throw new SyntaxError("Unexpected token");
+      },
+    }) as Response) as typeof fetch;
+  await assert.rejects(
+    () => rankDomains([1], "http://example.test"),
+    (err: unknown) =>
+      err instanceof Error && err.message === "Rank response was malformed",
+  );
+
+  globalThis.fetch = originalFetch;
 });

@@ -197,10 +197,10 @@ npm run build
 npm test
 ```
 
-### Local two-process UI (VENKAT-4)
+### Local two-process UI (VENKAT-4 / VENKAT-5)
 
 Run API and UI together from the repository root (Postgres + `DATABASE_URL` required
-for detection routes):
+for detection routes; `OPENAI_API_KEY` required for live ranking):
 
 ```bash
 # terminal 1
@@ -217,6 +217,11 @@ assess. The UI calls same-origin `/aegis-api/scan` → FastAPI `POST /api/scan`,
 then refreshes `/aegis-api/domains`. Null expiry fields are partial detector
 results, not “healthy.” Mandate setup uses whatever domains are currently stored.
 
+After domains exist, use **Run ranking** in the Agent recommendations panel. That
+calls `POST /api/agent/rank` via `/aegis-api/agent/rank`, shows criticality,
+decision, and the full reason, and states clearly that ranking is **not** a
+payment. `auto_renew` here is a covered recommendation only.
+
 Equivalent curl:
 
 ```bash
@@ -224,12 +229,17 @@ curl --fail --request POST http://localhost:8000/api/scan \
   --header 'Content-Type: application/json' \
   --data '{"domain":"example.com"}'
 curl --fail http://localhost:8000/api/domains
+# Use an id from the domains response above; 1 is valid only on an empty database
+# that just scanned its first domain.
+curl --fail --request POST http://localhost:8000/api/agent/rank \
+  --header 'Content-Type: application/json' \
+  --data '{"domain_ids":[1]}'
 ```
 
 The dashboard loads live inventory from `GET /api/domains` (via `/aegis-api`),
-shows loading / empty / error / populated states, and keeps the yearly mandate
-panel. `npm test` covers DomainList visual states, mandate UI states, and API
-parser helpers with mocked contract shapes.
+shows loading / empty / error / populated states, the yearly mandate panel, and
+the decision log. `npm test` covers DomainList, mandate UI, decision-log states,
+and API parser helpers with mocked contract shapes.
 
 The Next.js app proxies `/aegis-api/*` to the FastAPI `/api/*` routes so the
 browser never talks to Prava with a secret key.

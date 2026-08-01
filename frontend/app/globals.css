@@ -21,6 +21,7 @@
   --ok-soft: #ecfdf3;
   --dns: #1e3a5f;
   --dns-soft: #eef3f8;
+  --neutral-soft: #f1f4f8;
   --shadow-soft: 0 1px 0 rgba(12, 18, 34, 0.04), 0 12px 40px rgba(12, 18, 34, 0.06);
   --font-sans: var(--font-ibm-plex-sans), "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-source-serif), "Source Serif 4", Georgia, serif;
@@ -47,6 +48,7 @@
   --color-ok-soft: var(--ok-soft);
   --color-dns: var(--dns);
   --color-dns-soft: var(--dns-soft);
+  --color-neutral-soft: var(--neutral-soft);
   --font-sans: var(--font-sans);
   --font-display: var(--font-display);
   --font-mono: var(--font-mono);
