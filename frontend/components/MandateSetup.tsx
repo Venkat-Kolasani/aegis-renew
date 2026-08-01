@@ -213,18 +213,18 @@ export default function MandateSetup({
   return (
     <section
       aria-labelledby="mandate-setup-heading"
-      className="space-y-4 rounded-2xl border border-slate-800/80 bg-slate-950/50 p-6"
+      className="aegis-panel space-y-5 rounded-xl p-6 sm:p-7"
       data-state={state}
     >
-      <div className="space-y-2">
-        <h2 id="mandate-setup-heading" className="text-lg font-medium text-white">
+      <div className="space-y-2 border-b border-line pb-5">
+        <h2 id="mandate-setup-heading" className="text-base font-semibold text-ink">
           Yearly renewal mandate
         </h2>
-        <p className="text-sm leading-relaxed text-slate-400">
+        <p className="max-w-2xl text-sm leading-relaxed text-ink-muted">
           Approve a merchant-locked yearly Prava mandate with a passkey. The browser never chooses a
           mandate id, network token, or dynamic CVV.
         </p>
-        <p className="text-xs text-amber-200/80">
+        <p className="rounded-md border border-warn/20 bg-warn-soft px-3 py-2 text-xs text-warn">
           {/* DEMO: JOINT-2 / VENKAT-3 merchant path */}
           DEMO merchant: Aegis Demo Registrar ($18/year). Checkout completes via the Aegis DEMO
           adapter, not a live registrar storefront.
@@ -232,10 +232,10 @@ export default function MandateSetup({
       </div>
 
       <form className="grid gap-4 sm:grid-cols-2" onSubmit={onSubmit}>
-        <label className="space-y-1 text-sm text-slate-300 sm:col-span-2">
-          <span>Domain</span>
+        <label className="space-y-1.5 text-sm text-ink sm:col-span-2">
+          <span className="font-medium">Domain</span>
           <select
-            className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+            className="aegis-input font-mono"
             value={selectedDomainId ?? ""}
             onChange={(event) => {
               const nextId = Number(event.target.value);
@@ -252,10 +252,10 @@ export default function MandateSetup({
           </select>
         </label>
 
-        <label className="space-y-1 text-sm text-slate-300">
-          <span>Merchant name</span>
+        <label className="space-y-1.5 text-sm text-ink">
+          <span className="font-medium">Merchant name</span>
           <input
-            className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+            className="aegis-input"
             value={merchantName}
             onChange={(event) => setMerchantName(event.target.value)}
             disabled={state === "loading" || state === "awaiting_approval"}
@@ -263,10 +263,10 @@ export default function MandateSetup({
           />
         </label>
 
-        <label className="space-y-1 text-sm text-slate-300">
-          <span>Merchant URL</span>
+        <label className="space-y-1.5 text-sm text-ink">
+          <span className="font-medium">Merchant URL</span>
           <input
-            className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+            className="aegis-input font-mono"
             type="url"
             value={merchantUrl}
             onChange={(event) => setMerchantUrl(event.target.value)}
@@ -275,10 +275,10 @@ export default function MandateSetup({
           />
         </label>
 
-        <label className="space-y-1 text-sm text-slate-300">
-          <span>Merchant country</span>
+        <label className="space-y-1.5 text-sm text-ink">
+          <span className="font-medium">Merchant country</span>
           <input
-            className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+            className="aegis-input font-mono uppercase"
             value={merchantCountry}
             maxLength={2}
             onChange={(event) => setMerchantCountry(event.target.value.toUpperCase())}
@@ -287,10 +287,10 @@ export default function MandateSetup({
           />
         </label>
 
-        <label className="space-y-1 text-sm text-slate-300">
-          <span>Cap amount</span>
+        <label className="space-y-1.5 text-sm text-ink">
+          <span className="font-medium">Cap amount</span>
           <input
-            className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+            className="aegis-input font-mono"
             inputMode="decimal"
             value={capAmount}
             onChange={(event) => setCapAmount(event.target.value)}
@@ -299,10 +299,10 @@ export default function MandateSetup({
           />
         </label>
 
-        <label className="space-y-1 text-sm text-slate-300">
-          <span>Currency</span>
+        <label className="space-y-1.5 text-sm text-ink">
+          <span className="font-medium">Currency</span>
           <input
-            className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+            className="aegis-input font-mono uppercase"
             value={currency}
             maxLength={3}
             onChange={(event) => setCurrency(event.target.value.toUpperCase())}
@@ -311,17 +311,15 @@ export default function MandateSetup({
           />
         </label>
 
-        <div className="space-y-1 text-sm text-slate-300">
-          <span>Frequency</span>
-          <p className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-slate-200">
-            yearly (locked)
-          </p>
+        <div className="space-y-1.5 text-sm text-ink">
+          <span className="font-medium">Frequency</span>
+          <p className="aegis-input bg-[#f8f9fb] text-ink-muted">yearly (locked)</p>
         </div>
 
-        <div className="flex flex-wrap gap-3 sm:col-span-2">
+        <div className="flex flex-wrap gap-2.5 sm:col-span-2">
           <button
             type="submit"
-            className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+            className="aegis-btn aegis-btn-primary"
             disabled={
               state === "loading" ||
               state === "awaiting_approval" ||
@@ -334,24 +332,16 @@ export default function MandateSetup({
 
           {state === "awaiting_approval" ? (
             <>
-              <button
-                type="button"
-                className="rounded-xl border border-slate-600 px-4 py-2 text-sm text-slate-200"
-                onClick={onCancel}
-              >
+              <button type="button" className="aegis-btn aegis-btn-secondary" onClick={onCancel}>
                 Cancel
               </button>
-              <button
-                type="button"
-                className="rounded-xl border border-amber-500/40 px-4 py-2 text-sm text-amber-100"
-                onClick={onMarkExpired}
-              >
+              <button type="button" className="aegis-btn aegis-btn-secondary" onClick={onMarkExpired}>
                 Session expired
               </button>
               {approvalUrl ? (
                 <button
                   type="button"
-                  className="rounded-xl border border-cyan-500/40 px-4 py-2 text-sm text-cyan-100"
+                  className="aegis-btn aegis-btn-accent"
                   onClick={() => openApprovalUrl(approvalUrl)}
                 >
                   Reopen approval
@@ -361,11 +351,7 @@ export default function MandateSetup({
           ) : null}
 
           {state === "cancelled" || state === "error" || state === "expired" ? (
-            <button
-              type="button"
-              className="rounded-xl border border-slate-600 px-4 py-2 text-sm text-slate-200"
-              onClick={onReset}
-            >
+            <button type="button" className="aegis-btn aegis-btn-secondary" onClick={onReset}>
               Try again
             </button>
           ) : null}
@@ -373,25 +359,28 @@ export default function MandateSetup({
       </form>
 
       {state === "loading" ? (
-        <p role="status" className="text-sm text-slate-300">
+        <p role="status" className="text-sm text-ink-muted">
           Creating a Prava mandate-setup session…
         </p>
       ) : null}
 
       {state === "awaiting_approval" ? (
-        <p role="status" className="text-sm text-cyan-100">
+        <p
+          role="status"
+          className="rounded-lg border border-accent/20 bg-accent-soft px-3 py-2 text-sm text-accent"
+        >
           Approve with your passkey in the Prava window. Use the team sandbox card when prompted.
         </p>
       ) : null}
 
       {state === "cancelled" ? (
-        <p role="status" className="text-sm text-slate-300">
+        <p role="status" className="text-sm text-ink-muted">
           Mandate approval cancelled. No mandate id or payment credential was stored in the browser.
         </p>
       ) : null}
 
       {state === "expired" || state === "error" ? (
-        <p role="alert" className="text-sm text-rose-200">
+        <p role="alert" className="rounded-lg border border-danger/20 bg-danger-soft px-3 py-2 text-sm text-danger">
           {errorMessage}
         </p>
       ) : null}

@@ -62,5 +62,5 @@ test("renders DNS takeover risk separately from expiry urgency", () => {
   );
   assert.match(markup, /DNS takeover risk/);
   assert.match(markup, /data-risk="green"/);
-  assert.match(markup, /bg-violet-400\/15/);
+  assert.match(markup, /bg-dns-soft/);
 });

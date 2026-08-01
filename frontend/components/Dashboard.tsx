@@ -29,6 +29,50 @@ function describePartialScan(result: ScanResult): string {
   return result.dns_risk_detail ? `${base} DNS detail: ${result.dns_risk_detail}` : base;
 }
 
+function Stat({
+  label,
+  value,
+  tone = "default",
+  delay,
+}: {
+  label: string;
+  value: number;
+  tone?: "default" | "danger" | "warn" | "dns";
+  delay: string;
+}) {
+  const toneClass =
+    tone === "danger"
+      ? "border-danger/15 bg-danger-soft"
+      : tone === "warn"
+        ? "border-warn/15 bg-warn-soft"
+        : tone === "dns"
+          ? "border-dns/15 bg-dns-soft"
+          : "border-line bg-bg-elevated";
+
+  const valueClass =
+    tone === "danger"
+      ? "text-danger"
+      : tone === "warn"
+        ? "text-warn"
+        : tone === "dns"
+          ? "text-dns"
+          : "text-ink";
+
+  return (
+    <div
+      className={`aegis-rise rounded-xl border px-5 py-4 ${toneClass}`}
+      style={{ animationDelay: delay }}
+    >
+      <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+        {label}
+      </dt>
+      <dd className={`mt-2 font-display text-3xl font-semibold tabular-nums tracking-tight ${valueClass}`}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
 export default function Dashboard({ apiBaseUrl }: DashboardProps) {
   const [domains, setDomains] = useState<DomainSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,53 +151,49 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
   }));
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#164e63_0%,_#020617_42%,_#020617_100%)] px-6 py-12 text-slate-100">
-      <section className="mx-auto max-w-6xl space-y-10">
-        <header className="space-y-4">
-          <p className="text-sm font-medium tracking-[0.24em] text-cyan-300">AEGIS</p>
-          <div className="max-w-3xl space-y-3">
-            <h1 className="text-4xl font-semibold tracking-tight text-white">
-              Infrastructure renewal, under your control.
-            </h1>
-            <p className="text-base leading-relaxed text-slate-300">
-              Live domain, certificate, and DNS takeover signals from the local Aegis API.
-              Ranking and payments stay separate from this inventory view.
+    <main className="aegis-fade-in min-h-screen px-5 py-8 sm:px-8 sm:py-12">
+      <div className="mx-auto flex max-w-6xl flex-col gap-10">
+        <header className="aegis-rise flex flex-col gap-6 border-b border-line pb-8 sm:flex-row sm:items-end sm:justify-between">
+          <div className="max-w-2xl space-y-4">
+            <p className="font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
+              Aegis
             </p>
+            <div className="space-y-2">
+              <h1 className="text-lg font-medium text-ink sm:text-xl">
+                Infrastructure renewal under mandate control
+              </h1>
+              <p className="max-w-xl text-sm leading-relaxed text-ink-muted sm:text-[15px]">
+                Monitor domain expiry, TLS certificates, and confirmed DNS takeover risk.
+                Renewals execute only when a user-approved Prava mandate covers the merchant
+                and amount.
+              </p>
+            </div>
+          </div>
+          <div className="shrink-0 rounded-lg border border-line bg-bg-elevated px-3 py-2 text-xs text-ink-muted">
+            Live inventory · <span className="font-mono text-ink">/api/domains</span>
           </div>
         </header>
 
-        <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-slate-800/80 bg-slate-950/50 p-5">
-            <dt className="text-xs uppercase tracking-[0.16em] text-slate-500">Monitored</dt>
-            <dd className="mt-2 text-3xl font-semibold text-white">{summary.monitored}</dd>
-          </div>
-          <div className="rounded-2xl border border-rose-400/20 bg-rose-400/10 p-5">
-            <dt className="text-xs uppercase tracking-[0.16em] text-rose-200/80">Urgent</dt>
-            <dd className="mt-2 text-3xl font-semibold text-rose-100">{summary.urgent}</dd>
-          </div>
-          <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 p-5">
-            <dt className="text-xs uppercase tracking-[0.16em] text-amber-200/80">Review soon</dt>
-            <dd className="mt-2 text-3xl font-semibold text-amber-100">{summary.reviewSoon}</dd>
-          </div>
-          <div className="rounded-2xl border border-violet-400/20 bg-violet-400/10 p-5">
-            <dt className="text-xs uppercase tracking-[0.16em] text-violet-200/80">DNS risk</dt>
-            <dd className="mt-2 text-3xl font-semibold text-violet-100">{summary.dnsRisk}</dd>
-          </div>
+        <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Stat label="Monitored" value={summary.monitored} delay="40ms" />
+          <Stat label="Urgent" value={summary.urgent} tone="danger" delay="80ms" />
+          <Stat label="Review soon" value={summary.reviewSoon} tone="warn" delay="120ms" />
+          <Stat label="DNS risk" value={summary.dnsRisk} tone="dns" delay="160ms" />
         </dl>
 
-        <section className="space-y-4">
+        <section className="aegis-rise space-y-5" style={{ animationDelay: "180ms" }}>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h2 className="text-lg font-medium text-white">Domain risk inventory</h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Data from <code className="text-slate-300">GET /api/domains</code>. Null detector
-                fields mean a partial scan, not a healthy asset.
+              <h2 className="text-base font-semibold text-ink">Domain risk inventory</h2>
+              <p className="mt-1 max-w-2xl text-sm text-ink-muted">
+                Null detector fields are partial results from an unavailable external service—not
+                a healthy signal.
               </p>
             </div>
             <button
               type="button"
               onClick={() => void loadDomains()}
-              className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs uppercase tracking-[0.14em] text-slate-300 transition hover:border-slate-500"
+              className="aegis-btn aegis-btn-secondary"
               disabled={loading || scanning}
             >
               Refresh
@@ -161,13 +201,13 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
           </div>
 
           <form
-            className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-4 sm:flex-row sm:items-end"
+            className="aegis-panel flex flex-col gap-3 rounded-xl p-4 sm:flex-row sm:items-end"
             onSubmit={(event) => void onScan(event)}
           >
-            <label className="block flex-1 space-y-1 text-sm text-slate-300">
-              <span>Scan an authorized hostname</span>
+            <label className="block flex-1 space-y-1.5 text-sm text-ink">
+              <span className="font-medium">Scan an authorized hostname</span>
               <input
-                className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white outline-none ring-cyan-500/40 focus:ring"
+                className="aegis-input font-mono"
                 placeholder="example.com"
                 value={scanInput}
                 onChange={(event) => setScanInput(event.target.value)}
@@ -179,19 +219,22 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
             <button
               type="submit"
               disabled={scanning || loading}
-              className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+              className="aegis-btn aegis-btn-accent min-w-[8.5rem]"
             >
               {scanning ? "Scanning…" : "Scan now"}
             </button>
           </form>
 
           {scanError ? (
-            <p role="alert" className="text-sm text-rose-200">
+            <p role="alert" className="text-sm font-medium text-danger">
               {scanError}
             </p>
           ) : null}
           {scanMessage ? (
-            <p role="status" className="text-sm text-cyan-100/90">
+            <p
+              role="status"
+              className="rounded-lg border border-accent/20 bg-accent-soft px-3 py-2 text-sm text-accent"
+            >
               {scanMessage}
             </p>
           ) : null}
@@ -199,8 +242,10 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
           <DomainList domains={domains} loading={loading} error={error} today={today} />
         </section>
 
-        <MandateSetup domains={listForMandate} apiBaseUrl={apiBaseUrl} />
-      </section>
+        <div className="aegis-rise" style={{ animationDelay: "240ms" }}>
+          <MandateSetup domains={listForMandate} apiBaseUrl={apiBaseUrl} />
+        </div>
+      </div>
     </main>
   );
 }

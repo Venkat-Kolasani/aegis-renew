@@ -44,27 +44,38 @@ export default function DomainList({
 
   if (loading) {
     return (
-      <div aria-busy="true" className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 text-slate-300">
-        <p className="text-sm font-medium text-slate-200">Loading domains…</p>
-        <p className="mt-1 text-sm text-slate-500">Aegis is checking the monitored inventory.</p>
+      <div
+        aria-busy="true"
+        className="aegis-panel rounded-xl px-6 py-10 text-center"
+      >
+        <p className="text-sm font-medium text-ink">Loading domains…</p>
+        <p className="mt-1 text-sm text-ink-muted">
+          Aegis is reading the monitored inventory from the API.
+        </p>
+        <div className="mx-auto mt-6 h-1 w-40 overflow-hidden rounded-full bg-line">
+          <div className="h-full w-1/2 animate-pulse rounded-full bg-accent/70" />
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div role="alert" className="rounded-2xl border border-rose-400/25 bg-rose-400/10 p-6">
-        <p className="text-sm font-medium text-rose-100">Domain inventory unavailable</p>
-        <p className="mt-1 text-sm text-rose-200/75">{error}</p>
+      <div
+        role="alert"
+        className="rounded-xl border border-danger/20 bg-danger-soft px-6 py-8"
+      >
+        <p className="text-sm font-semibold text-danger">Domain inventory unavailable</p>
+        <p className="mt-1 text-sm text-danger/80">{error}</p>
       </div>
     );
   }
 
   if (domains.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/30 p-8 text-center">
-        <p className="text-sm font-medium text-slate-200">No domains scanned yet.</p>
-        <p className="mt-1 text-sm text-slate-500">
+      <div className="aegis-panel rounded-xl border-dashed px-6 py-12 text-center">
+        <p className="text-sm font-semibold text-ink">No domains scanned yet.</p>
+        <p className="mt-1 text-sm text-ink-muted">
           Use Scan now with a hostname you own or are authorized to assess.
         </p>
       </div>
@@ -72,41 +83,71 @@ export default function DomainList({
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-800/90">
-      <table className="min-w-[820px] divide-y divide-slate-800 text-left text-sm">
-        <caption className="sr-only">Tracked domains and renewal signals</caption>
-        <thead className="bg-slate-900/80 text-[11px] uppercase tracking-[0.14em] text-slate-500">
-          <tr>
-            <th className="px-5 py-4">Domain</th>
-            <th className="px-5 py-4">Domain expiry</th>
-            <th className="px-5 py-4">TLS certificate</th>
-            <th className="px-5 py-4">Risk signal</th>
-            <th className="px-5 py-4">Last scanned</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-800/90">
-          {domains.map((item) => (
-            <tr key={item.id} className="bg-slate-950/30 text-slate-300 transition-colors hover:bg-slate-900/60">
-              <th scope="row" className="px-5 py-4 font-medium text-slate-100">
-                <span className="block">{item.domain}</span>
-                <span className="mt-1 block text-xs font-normal text-slate-600">Asset {String(item.id).padStart(2, "0")}</span>
-              </th>
-              <td className="px-5 py-4">
-                <time dateTime={item.expiry_date ?? undefined} className="block text-slate-200">{displayDate(item.expiry_date)}</time>
-                <span className="mt-1 block text-xs text-slate-500">{displayDays(item.expiry_date, referenceDate)}</span>
-              </td>
-              <td className="px-5 py-4">
-                <time dateTime={item.cert_expiry_date ?? undefined} className="block text-slate-200">{displayDate(item.cert_expiry_date)}</time>
-                <span className="mt-1 block text-xs text-slate-500">{displayDays(item.cert_expiry_date, referenceDate)}</span>
-              </td>
-              <td className="px-5 py-4"><RiskBadge expiryDate={item.expiry_date} certExpiryDate={item.cert_expiry_date} dnsRisk={item.dns_risk} today={referenceDate} /></td>
-              <td className="px-5 py-4 text-xs text-slate-500">
-                <time dateTime={item.last_scanned ?? undefined}>{displayDateTime(item.last_scanned)}</time>
-              </td>
+    <div className="aegis-panel overflow-hidden rounded-xl">
+      <div className="overflow-x-auto">
+        <table className="min-w-[860px] w-full text-left text-sm">
+          <caption className="sr-only">Tracked domains and renewal signals</caption>
+          <thead>
+            <tr className="border-b border-line bg-[#f8fafb] text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
+              <th className="px-5 py-3.5">Domain</th>
+              <th className="px-5 py-3.5">Domain expiry</th>
+              <th className="px-5 py-3.5">TLS certificate</th>
+              <th className="px-5 py-3.5">Risk signal</th>
+              <th className="px-5 py-3.5">Last scanned</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {domains.map((item) => (
+              <tr
+                key={item.id}
+                className="border-b border-line/80 last:border-0 transition-colors duration-150 hover:bg-[#f7faf9]"
+              >
+                <th scope="row" className="px-5 py-4 font-medium text-ink">
+                  <span className="font-mono text-[13px] tracking-tight">{item.domain}</span>
+                  <span className="mt-1 block text-xs font-normal text-ink-faint">
+                    Asset {String(item.id).padStart(2, "0")}
+                  </span>
+                </th>
+                <td className="px-5 py-4">
+                  <time
+                    dateTime={item.expiry_date ?? undefined}
+                    className="block tabular-nums text-ink"
+                  >
+                    {displayDate(item.expiry_date)}
+                  </time>
+                  <span className="mt-1 block text-xs text-ink-muted">
+                    {displayDays(item.expiry_date, referenceDate)}
+                  </span>
+                </td>
+                <td className="px-5 py-4">
+                  <time
+                    dateTime={item.cert_expiry_date ?? undefined}
+                    className="block tabular-nums text-ink"
+                  >
+                    {displayDate(item.cert_expiry_date)}
+                  </time>
+                  <span className="mt-1 block text-xs text-ink-muted">
+                    {displayDays(item.cert_expiry_date, referenceDate)}
+                  </span>
+                </td>
+                <td className="px-5 py-4">
+                  <RiskBadge
+                    expiryDate={item.expiry_date}
+                    certExpiryDate={item.cert_expiry_date}
+                    dnsRisk={item.dns_risk}
+                    today={referenceDate}
+                  />
+                </td>
+                <td className="px-5 py-4 text-xs tabular-nums text-ink-muted">
+                  <time dateTime={item.last_scanned ?? undefined}>
+                    {displayDateTime(item.last_scanned)}
+                  </time>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
