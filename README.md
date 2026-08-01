@@ -21,6 +21,18 @@ pytest -q
 The Phase 0 API exposes `GET /health`; business routes are intentionally typed
 501 placeholders until their owner begins the corresponding build prompt.
 
+## Frontend development
+
+```bash
+cd frontend
+npm run dev
+npm run lint
+npm run build
+```
+
+The Phase 0 frontend is an App Router dashboard shell. Domain and payment
+components are intentionally deferred to their owner-specific prompts.
+
 ## Build disclosure
 
 The Aegis idea and public integration research existed before the event. All
