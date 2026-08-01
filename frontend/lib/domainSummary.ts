@@ -1,4 +1,4 @@
-import type { DomainSummary } from "@/components/DomainList";
+import type { DomainSummary } from "@/lib/aegisApi";
 import { daysUntilExpiry } from "@/components/RiskBadge";
 
 function nearestDays(domain: DomainSummary, today: Date): number | null {

@@ -45,7 +45,7 @@ export default function SiteChrome({ children, variant = "marketing" }: SiteChro
           </nav>
         </div>
       </header>
-      {children}
+      <main>{children}</main>
       <footer className="border-t border-line/80 bg-bg-elevated">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 py-8 text-sm text-ink-muted sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <p>Built for the Prava Agentic Commerce Hackathon.</p>

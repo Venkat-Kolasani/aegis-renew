@@ -57,6 +57,12 @@
     scroll-behavior: smooth;
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
   body {
     background-color: var(--bg);
     color: var(--ink);
@@ -227,11 +233,28 @@
   }
 
   .aegis-fade-in {
-    animation: aegis-fade-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: none;
   }
 
   .aegis-rise {
-    animation: aegis-rise 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: none;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .aegis-fade-in {
+      animation: aegis-fade-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    .aegis-rise {
+      animation: aegis-rise 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .aegis-fade-in,
+    .aegis-rise {
+      animation: none !important;
+    }
   }
 }
 

@@ -1,13 +1,8 @@
+import type { DomainSummary } from "@/lib/aegisApi";
+
 import RiskBadge, { daysUntilExpiry } from "./RiskBadge";
 
-export type DomainSummary = {
-  id: number;
-  domain: string;
-  expiry_date: string | null;
-  cert_expiry_date: string | null;
-  dns_risk: boolean;
-  last_scanned: string | null;
-};
+export type { DomainSummary };
 
 type DomainListProps = {
   domains: DomainSummary[];

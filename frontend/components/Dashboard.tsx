@@ -1,13 +1,14 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-import DomainList, { type DomainSummary } from "@/components/DomainList";
+import DomainList from "@/components/DomainList";
 import MandateSetup from "@/components/MandateSetup";
 import {
   fetchDomains,
   isValidScanDomain,
   scanDomain,
+  type DomainSummary,
   type ScanResult,
 } from "@/lib/aegisApi";
 import { summarizeDomains } from "@/lib/domainSummary";
@@ -57,44 +58,39 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
   const [scanning, setScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
   const today = new Date();
 
-  async function loadDomains(): Promise<void> {
+  const loadDomains = useCallback(async (): Promise<void> => {
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
     setLoading(true);
     setError(null);
     try {
       const next = await fetchDomains(apiBaseUrl);
+      if (requestId !== requestIdRef.current) return;
       setDomains(next);
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       setDomains([]);
       setError(err instanceof Error ? err.message : "Could not load domains");
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
-  }
+  }, [apiBaseUrl]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    void fetchDomains(apiBaseUrl)
-      .then((next) => {
-        if (cancelled) return;
-        setDomains(next);
-        setError(null);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setDomains([]);
-        setError(err instanceof Error ? err.message : "Could not load domains");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
+    // Defer so the shared loader's setState is not synchronous inside the effect.
+    const timer = window.setTimeout(() => {
+      void loadDomains();
+    }, 0);
     return () => {
-      cancelled = true;
+      window.clearTimeout(timer);
+      requestIdRef.current += 1;
     };
-  }, [apiBaseUrl]);
+  }, [loadDomains]);
 
   async function onScan(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -125,6 +121,8 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
     id: item.id,
     domain: item.domain,
   }));
+  const showFullSkeleton = loading && domains.length === 0;
+  const refreshing = loading && domains.length > 0;
 
   return (
     <div className="aegis-fade-in px-5 py-8 sm:px-8 sm:py-10">
@@ -147,7 +145,7 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
             className="aegis-btn aegis-btn-secondary self-start sm:self-auto"
             disabled={loading || scanning}
           >
-            Refresh inventory
+            {refreshing ? "Refreshing…" : "Refresh inventory"}
           </button>
         </header>
 
@@ -212,7 +210,18 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
               </p>
             ) : null}
 
-            <DomainList domains={domains} loading={loading} error={error} today={today} />
+            {refreshing ? (
+              <p role="status" className="text-xs font-medium text-ink-muted">
+                Refreshing inventory…
+              </p>
+            ) : null}
+
+            <DomainList
+              domains={domains}
+              loading={showFullSkeleton}
+              error={error}
+              today={today}
+            />
           </section>
 
           <aside className="xl:sticky xl:top-6">

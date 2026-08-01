@@ -6,7 +6,7 @@ export type DomainSummary = {
   expiry_date: string | null;
   cert_expiry_date: string | null;
   dns_risk: boolean;
-  last_scanned: string;
+  last_scanned: string | null;
 };
 
 export type ScanResult = {
@@ -19,6 +19,7 @@ export type ScanResult = {
 };
 
 const DEFAULT_API_BASE = "/aegis-api";
+const FETCH_TIMEOUT_MS = 30_000;
 
 export function resolveApiBase(apiBaseUrl?: string): string {
   if (apiBaseUrl && apiBaseUrl.length > 0) return apiBaseUrl.replace(/\/$/, "");
@@ -55,7 +56,8 @@ export function parseDomainSummary(value: unknown): DomainSummary | null {
   if (!isNullOrString(row.expiry_date)) return null;
   if (!isNullOrString(row.cert_expiry_date)) return null;
   if (typeof row.dns_risk !== "boolean") return null;
-  if (typeof row.last_scanned !== "string" || row.last_scanned.length === 0) {
+  if (!isNullOrString(row.last_scanned)) return null;
+  if (typeof row.last_scanned === "string" && row.last_scanned.length === 0) {
     return null;
   }
   // Contract fields only — no remapping that could hide backend mistakes.
@@ -112,6 +114,7 @@ export async function fetchDomains(apiBaseUrl?: string): Promise<DomainSummary[]
     method: "GET",
     headers: { Accept: "application/json" },
     cache: "no-store",
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(await readErrorDetail(response));
@@ -142,6 +145,7 @@ export async function scanDomain(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ domain }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(await readErrorDetail(response));

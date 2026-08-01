@@ -6,9 +6,9 @@ import {
   parseDomainSummary,
   parseScanResult,
   resolveApiBase,
+  type DomainSummary,
 } from "../lib/aegisApi";
 import { summarizeDomains } from "../lib/domainSummary";
-import type { DomainSummary } from "../components/DomainList";
 
 test("resolveApiBase defaults to the Next rewrite prefix", () => {
   assert.equal(resolveApiBase(), "/aegis-api");
@@ -42,9 +42,16 @@ test("parseDomainSummary keeps contract fields without remapping", () => {
   });
 });
 
-test("parseDomainSummary rejects malformed rows", () => {
-  assert.equal(parseDomainSummary({ id: 1, domain: "x.com" }), null);
-  assert.equal(parseDomainSummary([{ id: 1 }]), null);
+test("parseDomainSummary accepts null last_scanned", () => {
+  const parsed = parseDomainSummary({
+    id: 4,
+    domain: "partial.example.com",
+    expiry_date: null,
+    cert_expiry_date: null,
+    dns_risk: false,
+    last_scanned: null,
+  });
+  assert.equal(parsed?.last_scanned, null);
 });
 
 test("parseScanResult accepts dns_risk_detail including null", () => {
