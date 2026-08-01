@@ -139,12 +139,53 @@ more than 20 unique domains, refusal, truncated output, invalid model output,
 and mismatched result IDs retain the conservative `flag_for_review` fallback
 without exposing raw error text.
 
-Ranking is advisory, side-effect-free, and cannot spend money: it reads facts
-but does not persist decisions, invoke renewal execution, or mutate domain
-state. TLS and DNS observations affect urgency; they are not separate renewal
-purchases. Deterministic mandate, merchant, quote, currency, and cap checks
-come later, so a recommendation is not proof of spending authority or a
-successful renewal.
+The ranking function is advisory and side-effect-free. The API layer adds a
+deterministic, non-spending coverage gate and persists only its final
+recommendations:
+
+```bash
+curl --fail --request POST http://localhost:8000/api/agent/rank \
+  --header 'Content-Type: application/json' \
+  --data '{"domain_ids":[1]}'
+```
+
+The response contains no coverage or commerce metadata:
+
+```json
+[
+  {
+    "domain_id": 1,
+    "criticality_score": 91,
+    "decision": "auto_renew",
+    "reason": "Domain expiry is imminent."
+  }
+]
+```
+
+The request accepts 1–100 distinct positive integer IDs for already scanned
+domains. A batch is ranked once. An `auto_renew` recommendation is retained
+only when one active yearly mandate independently matches that domain and the
+server-derived DEMO registrar quote's merchant name, canonical HTTPS URL,
+country, currency, future validity, and exact `Decimal` amount at or below its
+positive cap. Coverage is never assembled from multiple partial mandates. A
+missing, inactive, expired, or wrong-domain mandate fails closed, as does a
+merchant name, canonical URL, country, yearly frequency, or currency mismatch.
+Missing validity, a stale, future-dated, malformed, or non-positive quote, and a
+quote above the mandate cap also downgrade only that auto recommendation to
+`flag_for_review`; `ignore` and existing `flag_for_review` results are never
+upgraded.
+
+The quote is the disclosed fixed DEMO registrar quote observed by the server at
+request time. Browsers cannot submit merchant, amount, currency, mandate, or
+credential fields to this endpoint. The API writes only sanitized final
+`AgentDecision` rows in one transaction and rolls back the whole batch on a
+database failure. It does not invoke Prava, mint credentials, execute a renewal,
+write payment outcomes, or mutate domain or mandate records. Therefore
+`auto_renew` remains a covered recommendation—not proof of spending, a
+completed renewal, or permission for a later execution path to skip its own
+fresh authorization checks. TLS and DNS observations affect urgency; they are
+not separate renewal purchases. Payment execution remains a separate, explicit
+API path and is never initiated by ranking.
 
 ## Frontend development
 
