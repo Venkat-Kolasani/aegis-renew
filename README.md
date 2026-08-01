@@ -52,6 +52,35 @@ malformed peer data, and missing certificates raise a classified
 Domain renewal does not automatically renew, replace, or repair a TLS
 certificate; TLS expiry is an independent risk signal.
 
+### Dangling-CNAME and takeover-risk detection
+
+`check_takeover_risk()` inspects only the exact authorized hostname supplied by
+the caller and follows its CNAME chain for at most 10 hops. It never enumerates
+or brute-forces subdomains. Targets are compared at DNS-label boundaries with
+vulnerable entries from EdOverflow's canonical
+[`can-i-take-over-xyz`](https://github.com/EdOverflow/can-i-take-over-xyz)
+fingerprints, pinned to commit
+`5bd4e12837911c8475486f1da922c9b9c706e632` (refresh: 2025-02-08).
+
+A vulnerable provider match alone returns `confidence="pattern_only"`. High
+confidence requires either the upstream HTTP fingerprint in one bounded live
+response or an exact target NXDOMAIN when upstream defines NXDOMAIN as its
+fingerprint. Timeouts, blocked/private targets, provider errors, truncated
+responses, unexpected HTTP 5xx responses, and ambiguous results remain
+`pattern_only`; a successful nonmatching response can return
+`confidence="none"` for a live resource.
+
+`has_dangling_cname=true` means a vulnerable provider pattern was found; it is
+not a claim of compromise. `pattern_only` is not `dns_risk`, and even high
+confidence is strong evidence rather than proof of exploitability. Later API
+integration must set confirmed `dns_risk=true` only for `confidence="high"`.
+Fingerprints can become stale and provider behavior can change, so results
+still require authorized human review. Address preflight checks reduce SSRF
+risk but cannot eliminate DNS rebinding between validation and the HTTP
+connection. Run live probing only for hostnames you own or are expressly
+authorized to assess. Aegis detects risk but never registers, claims, modifies,
+or exploits provider resources.
+
 ## Frontend development
 
 ```bash
