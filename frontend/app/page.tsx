@@ -1,4 +1,5 @@
 import DomainList, { type DomainSummary } from "@/components/DomainList";
+import MandateSetup from "@/components/MandateSetup";
 import { daysUntilExpiry } from "@/components/RiskBadge";
 
 const fixtureToday = new Date("2026-08-01T00:00:00Z");
@@ -145,6 +146,13 @@ export default function Home() {
           </div>
           <DomainList domains={fixtureDomains} today={fixtureToday} />
         </section>
+
+        <MandateSetup
+          domains={fixtureDomains.map((domain) => ({
+            id: domain.id,
+            domain: domain.domain,
+          }))}
+        />
       </section>
     </main>
   );
