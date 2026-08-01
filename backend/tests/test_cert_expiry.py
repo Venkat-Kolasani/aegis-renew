@@ -29,7 +29,7 @@ def _crt_row(
     names: str = "example.com",
     serial: str = "01",
     issuer: str = "C=US, O=Example CA, CN=Example Issuer",
-    not_before: str = "2000-01-01T00:00:00Z",
+    not_before: str = "2020-01-01T00:00:00Z",
 ) -> dict[str, object]:
     """Build a representative crt.sh certificate row."""
     return {
@@ -64,7 +64,11 @@ def test_latest_current_certificate_is_selected(
     rows = [
         _crt_row("2095-01-01T00:00:00Z", serial="later"),
         _crt_row("2090-01-01T00:00:00Z", serial="earlier"),
-        _crt_row("2005-01-01T00:00:00Z", serial="expired"),
+        _crt_row(
+            "2005-01-01T00:00:00Z",
+            not_before="2000-01-01T00:00:00Z",
+            serial="expired",
+        ),
     ]
     _mock_crt_payload(monkeypatch, rows)
 
@@ -126,8 +130,16 @@ def test_latest_expired_certificate_is_used_when_all_are_expired(
 ) -> None:
     """The least-old expired match is returned only when every match expired."""
     rows = [
-        _crt_row("2005-01-01T00:00:00Z", serial="latest"),
-        _crt_row("2001-01-01T00:00:00Z", serial="older"),
+        _crt_row(
+            "2005-01-01T00:00:00Z",
+            not_before="2000-01-01T00:00:00Z",
+            serial="latest",
+        ),
+        _crt_row(
+            "2001-01-01T00:00:00Z",
+            not_before="1999-01-01T00:00:00Z",
+            serial="older",
+        ),
     ]
     _mock_crt_payload(monkeypatch, rows)
 
