@@ -101,10 +101,11 @@ curl --fail --request POST http://localhost:8000/api/scan \
 
 `POST /api/scan` normalizes the hostname, runs RDAP, certificate, and takeover
 detection independently, then atomically upserts the available results. A
-classified external-service failure leaves only that detector's field null or
-conservative while the other successful facts are returned and stored. RDAP,
-crt.sh, direct TLS, DNS, the pinned fingerprint source, and HTTP confirmation
-can still time out, rate-limit, or return incomplete data.
+classified external-service failure uses a safe null or false default for a new
+domain. On later scans it preserves that detector's last-known-good fields while
+updating successful detector facts and `last_scanned`. RDAP, crt.sh, direct TLS,
+DNS, the pinned fingerprint source, and HTTP confirmation can still time out,
+rate-limit, or return incomplete data.
 
 `dns_risk=true` is stored only for `confidence="high"`, which is strong live
 evidence requiring review rather than proof of compromise. `pattern_only` is

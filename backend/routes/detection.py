@@ -7,10 +7,15 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from typing import Self
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import Insert as PostgreSQLInsert
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import Insert as SQLiteInsert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -57,7 +62,9 @@ class _DomainFactsResponse(BaseModel):
 
     @field_validator("cert_expiry_date")
     @classmethod
-    def cert_expiry_is_utc(cls, value: datetime | None) -> datetime | None:
+    def cert_expiry_is_utc(
+        cls: type[Self], value: datetime | None
+    ) -> datetime | None:
         """Return certificate timestamps as timezone-aware UTC."""
         return _as_utc(value)
 
@@ -69,7 +76,7 @@ class DomainResponse(_DomainFactsResponse):
 
     @field_validator("last_scanned")
     @classmethod
-    def last_scanned_is_utc(cls, value: datetime) -> datetime:
+    def last_scanned_is_utc(cls: type[Self], value: datetime) -> datetime:
         """Return scan timestamps as timezone-aware UTC."""
         normalized = _as_utc(value)
         if normalized is None:  # pragma: no cover - model field is required
@@ -91,6 +98,9 @@ class _DetectionSnapshot:
     cert_expiry_date: datetime | None
     dns_risk: bool
     dns_risk_detail: str | None
+    rdap_available: bool
+    certificate_available: bool
+    takeover_available: bool
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -111,14 +121,27 @@ def get_db_session() -> Iterator[Session]:
         session.close()
 
 
-def _log_detector_failure(detector: str, domain: str, category: str) -> None:
+def _log_detector_failure(
+    detector: str, domain: str, category: str, error: Exception
+) -> None:
     """Log one classified detector failure without provider response data."""
+    diagnostic = f"{detector} reported classified {category}"[:_DETAIL_LIMIT]
     logger.warning(
-        "Detection provider failed",
+        (
+            "Detector failure detector=%s domain=%s category=%s "
+            "exception_type=%s diagnostic=%s"
+        ),
+        detector,
+        domain,
+        category,
+        type(error).__name__,
+        diagnostic,
         extra={
             "detector": detector,
             "domain": domain,
             "category": category,
+            "exception_type": type(error).__name__,
+            "diagnostic": diagnostic,
         },
     )
 
@@ -128,7 +151,7 @@ def _run_rdap(domain: str) -> DomainExpiryResult | None:
     try:
         return get_domain_expiry(domain)
     except DomainLookupError as exc:
-        _log_detector_failure("rdap", domain, exc.kind.value)
+        _log_detector_failure("rdap", domain, exc.kind.value, exc)
         return None
 
 
@@ -137,7 +160,7 @@ def _run_certificate(domain: str) -> CertExpiryResult | None:
     try:
         return get_cert_expiry(domain)
     except CertLookupError as exc:
-        _log_detector_failure("certificate", domain, exc.kind.value)
+        _log_detector_failure("certificate", domain, exc.kind.value, exc)
         return None
 
 
@@ -148,7 +171,7 @@ def _run_takeover(
     try:
         return check_takeover_risk(domain), None
     except TakeoverLookupError as exc:
-        _log_detector_failure("takeover", domain, exc.kind.value)
+        _log_detector_failure("takeover", domain, exc.kind.value, exc)
         return None, exc.kind.value
 
 
@@ -201,23 +224,78 @@ def _run_detectors(domain: str) -> _DetectionSnapshot:
         cert_expiry_date=cert_expiry,
         dns_risk=takeover is not None and takeover.confidence == "high",
         dns_risk_detail=_takeover_detail(takeover, takeover_failure),
+        rdap_available=rdap is not None,
+        certificate_available=certificate is not None,
+        takeover_available=takeover is not None,
+    )
+
+
+def _insert_values(
+    domain: str, snapshot: _DetectionSnapshot, scanned_at: datetime
+) -> dict[str, object]:
+    """Build safe values for a newly inserted domain row."""
+    return {
+        "domain": domain,
+        "expiry_date": snapshot.expiry_date,
+        "cert_expiry_date": snapshot.cert_expiry_date,
+        "dns_risk": snapshot.dns_risk,
+        "dns_risk_detail": snapshot.dns_risk_detail,
+        "last_scanned": scanned_at,
+    }
+
+
+def _conflict_update_values(
+    snapshot: _DetectionSnapshot, scanned_at: datetime
+) -> dict[str, object]:
+    """Update only facts whose detector succeeded in the current scan."""
+    values: dict[str, object] = {"last_scanned": scanned_at}
+    if snapshot.rdap_available:
+        values["expiry_date"] = snapshot.expiry_date
+    if snapshot.certificate_available:
+        values["cert_expiry_date"] = snapshot.cert_expiry_date
+    if snapshot.takeover_available:
+        values["dns_risk"] = snapshot.dns_risk
+        values["dns_risk_detail"] = snapshot.dns_risk_detail
+    return values
+
+
+def _domain_upsert_statement(
+    dialect_name: str,
+    insert_values: dict[str, object],
+    update_values: dict[str, object],
+) -> PostgreSQLInsert | SQLiteInsert:
+    """Build an atomic domain upsert for PostgreSQL or SQLite."""
+    if dialect_name == "postgresql":
+        statement = postgresql_insert(Domain).values(**insert_values)
+    elif dialect_name == "sqlite":
+        statement = sqlite_insert(Domain).values(**insert_values)
+    else:
+        raise SQLAlchemyError(f"Unsupported database dialect: {dialect_name}")
+    return statement.on_conflict_do_update(
+        index_elements=[Domain.domain], set_=update_values
     )
 
 
 def _upsert_domain(
     session: Session, domain: str, snapshot: _DetectionSnapshot
 ) -> Domain:
-    """Insert or update one normalized domain and flush its current ID."""
-    record = session.scalar(select(Domain).where(Domain.domain == domain))
-    if record is None:
-        record = Domain(domain=domain)
-        session.add(record)
-    record.expiry_date = snapshot.expiry_date
-    record.cert_expiry_date = snapshot.cert_expiry_date
-    record.dns_risk = snapshot.dns_risk
-    record.dns_risk_detail = snapshot.dns_risk_detail
-    record.last_scanned = datetime.now(UTC)
+    """Atomically insert or update a domain, then load its persisted row."""
+    scanned_at = datetime.now(UTC)
+    statement = _domain_upsert_statement(
+        session.get_bind().dialect.name,
+        _insert_values(domain, snapshot, scanned_at),
+        _conflict_update_values(snapshot, scanned_at),
+    )
+    session.execute(statement)
     session.flush()
+    query = (
+        select(Domain)
+        .where(Domain.domain == domain)
+        .execution_options(populate_existing=True)
+    )
+    record = session.scalar(query)
+    if record is None:  # pragma: no cover - protected by the atomic statement
+        raise SQLAlchemyError("Domain upsert did not produce a row")
     return record
 
 
@@ -235,7 +313,7 @@ def _database_failure(session: Session, domain: str) -> HTTPException:
 
 @router.get("/domains", response_model=list[DomainResponse])
 def list_domains(session: Session = Depends(get_db_session)) -> list[Domain]:
-    """Return stored domain scans in deterministic newest-first order."""
+    """Return stored domain scan summaries in deterministic newest-first order."""
     try:
         statement = select(Domain).order_by(
             Domain.last_scanned.desc(), Domain.id.desc()
@@ -249,7 +327,7 @@ def list_domains(session: Session = Depends(get_db_session)) -> list[Domain]:
 def scan_domain(
     request: ScanRequest, session: Session = Depends(get_db_session)
 ) -> Domain:
-    """Scan one normalized domain, persist partial results, and return them."""
+    """Return persisted partial results from scanning one normalized domain."""
     try:
         domain = normalize_domain(request.domain)
     except DomainLookupError as exc:

@@ -9,10 +9,12 @@ from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import Engine, func, select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from backend.db.connection import create_session_factory
 from backend.db.models import Domain
 from backend.detection.cert_expiry import (
     CertExpiryResult,
@@ -102,6 +104,24 @@ def client(db_session: Session) -> Iterator[TestClient]:
         yield test_client
 
 
+@pytest.fixture
+def independent_session_client(db_engine: Engine) -> Iterator[TestClient]:
+    """Create a client that opens an independent session for every request."""
+    app = create_app()
+    session_factory = create_session_factory(db_engine)
+
+    def override_session() -> Iterator[Session]:
+        session = session_factory()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[detection_routes.get_db_session] = override_session
+    with TestClient(app) as test_client:
+        yield test_client
+
+
 def _domain_count(session: Session) -> int:
     """Return the number of persisted domain rows."""
     return session.scalar(select(func.count()).select_from(Domain)) or 0
@@ -157,12 +177,12 @@ def test_list_domains_returns_only_stored_contract_fields(
     assert datetime.fromisoformat(payload[0]["last_scanned"]).tzinfo is not None
 
 
-def test_rescan_normalizes_and_updates_existing_row(
+def test_rescan_normalizes_updates_and_successful_none_clears_dns_risk(
     client: TestClient,
     db_session: Session,
     detector_mocks: _DetectorMocks,
 ) -> None:
-    """Equivalent domain input updates facts while retaining one stable ID."""
+    """A successful confidence=none rescan clears prior risk on the same row."""
     first = client.post("/api/scan", json={"domain": "example.com"})
     detector_mocks.rdap.side_effect = lambda domain: DomainExpiryResult(
         domain, date(2028, 1, 2), None, ()
@@ -174,14 +194,81 @@ def test_rescan_normalizes_and_updates_existing_row(
     second = client.post("/api/scan", json={"domain": "EXAMPLE.COM."})
 
     assert first.status_code == second.status_code == 200
+    assert first.json()["dns_risk"] is True
     assert second.json()["id"] == first.json()["id"]
     assert second.json()["domain"] == "example.com"
     assert second.json()["expiry_date"] == "2028-01-02"
     assert second.json()["dns_risk"] is False
+    assert "confidence=none" in second.json()["dns_risk_detail"]
     assert _domain_count(db_session) == 1
     assert detector_mocks.rdap.call_args.args == ("example.com",)
     assert detector_mocks.certificate.call_args.args == ("example.com",)
     assert detector_mocks.takeover.call_args.args == ("example.com",)
+
+
+def test_atomic_conflict_path_uses_independent_sessions(
+    independent_session_client: TestClient,
+    db_engine: Engine,
+    detector_mocks: _DetectorMocks,
+) -> None:
+    """Independent requests atomically update one stable domain row."""
+    first = independent_session_client.post(
+        "/api/scan", json={"domain": "example.com"}
+    )
+    first_list = independent_session_client.get("/api/domains")
+    detector_mocks.rdap.side_effect = lambda domain: DomainExpiryResult(
+        domain, date(2029, 4, 3), None, ()
+    )
+    detector_mocks.certificate.side_effect = CertLookupError(
+        CertLookupErrorKind.UNREACHABLE, domain="example.com", message="hidden"
+    )
+    detector_mocks.takeover.side_effect = lambda domain: TakeoverRiskResult(
+        domain, False, None, None, "none"
+    )
+
+    second = independent_session_client.post(
+        "/api/scan", json={"domain": "EXAMPLE.COM."}
+    )
+    second_list = independent_session_client.get("/api/domains")
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["id"] == second.json()["id"]
+    assert second.json()["expiry_date"] == "2029-04-03"
+    assert second.json()["cert_expiry_date"] == first.json()["cert_expiry_date"]
+    assert second.json()["dns_risk"] is False
+    first_scan_time = datetime.fromisoformat(first_list.json()[0]["last_scanned"])
+    second_scan_time = datetime.fromisoformat(second_list.json()[0]["last_scanned"])
+    assert second_scan_time > first_scan_time
+    with create_session_factory(db_engine)() as verification_session:
+        assert _domain_count(verification_session) == 1
+
+
+def test_postgresql_upsert_compiles_with_domain_conflict_target() -> None:
+    """Production SQL uses one PostgreSQL domain-targeted atomic upsert."""
+    scanned_at = datetime(2026, 8, 1, tzinfo=UTC)
+    snapshot = detection_routes._DetectionSnapshot(
+        expiry_date=EXPIRY_DATE,
+        cert_expiry_date=None,
+        dns_risk=False,
+        dns_risk_detail="confidence=none",
+        rdap_available=True,
+        certificate_available=False,
+        takeover_available=True,
+    )
+    statement = detection_routes._domain_upsert_statement(
+        "postgresql",
+        detection_routes._insert_values("example.com", snapshot, scanned_at),
+        detection_routes._conflict_update_values(snapshot, scanned_at),
+    )
+
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+    update_clause = sql.partition("DO UPDATE SET")[2]
+    assert "ON CONFLICT (domain) DO UPDATE SET" in sql
+    assert "last_scanned" in update_clause
+    assert "expiry_date" in update_clause
+    assert "cert_expiry_date" not in update_clause
+    assert "dns_risk" in update_clause
+    assert "dns_risk_detail" in update_clause
 
 
 def test_invalid_domain_returns_422_without_side_effects(
@@ -202,10 +289,10 @@ def test_invalid_domain_returns_422_without_side_effects(
     assert _domain_count(db_session) == 0
 
 
-def test_rdap_failure_preserves_certificate_and_dns_results(
+def test_initial_rdap_failure_uses_null_expiry_only(
     client: TestClient, detector_mocks: _DetectorMocks
 ) -> None:
-    """A classified RDAP failure yields null expiry and other successes."""
+    """A new row safely uses null when no RDAP fact has succeeded yet."""
     detector_mocks.rdap.side_effect = DomainLookupError(
         DomainLookupErrorKind.PROVIDER_UNAVAILABLE,
         "example.com",
@@ -218,14 +305,13 @@ def test_rdap_failure_preserves_certificate_and_dns_results(
     assert response.json()["expiry_date"] is None
     assert response.json()["cert_expiry_date"] is not None
     assert response.json()["dns_risk"] is True
-    detector_mocks.certificate.assert_called_once()
-    detector_mocks.takeover.assert_called_once()
+    assert "raw provider diagnostic" not in response.text
 
 
-def test_certificate_failure_preserves_rdap_and_dns_results(
+def test_initial_certificate_failure_uses_null_cert_expiry_only(
     client: TestClient, detector_mocks: _DetectorMocks
 ) -> None:
-    """A classified certificate failure yields null TLS expiry only."""
+    """A new row safely uses null when no certificate fact has succeeded yet."""
     detector_mocks.certificate.side_effect = CertLookupError(
         CertLookupErrorKind.TIMEOUT,
         "example.com",
@@ -238,31 +324,100 @@ def test_certificate_failure_preserves_rdap_and_dns_results(
     assert response.json()["expiry_date"] == EXPIRY_DATE.isoformat()
     assert response.json()["cert_expiry_date"] is None
     assert response.json()["dns_risk"] is True
-    detector_mocks.rdap.assert_called_once()
-    detector_mocks.takeover.assert_called_once()
+    assert "raw TLS diagnostic" not in response.text
+
+
+def test_initial_takeover_failure_uses_safe_false_and_sanitized_detail(
+    client: TestClient, detector_mocks: _DetectorMocks
+) -> None:
+    """A new row uses conservative DNS defaults without leaking diagnostics."""
+    detector_mocks.takeover.side_effect = TakeoverLookupError(
+        TakeoverLookupErrorKind.DNS_UNREACHABLE,
+        "example.com",
+        "raw DNS provider response",
+    )
+
+    response = client.post("/api/scan", json={"domain": "example.com"})
+
+    assert response.status_code == 200
+    assert response.json()["dns_risk"] is False
+    assert "category=dns_unreachable" in response.json()["dns_risk_detail"]
+    assert "raw DNS provider response" not in response.text
+
+
+def test_rdap_failure_preserves_certificate_and_dns_results(
+    client: TestClient, detector_mocks: _DetectorMocks
+) -> None:
+    """A transient RDAP failure preserves the last successful expiry date."""
+    first = client.post("/api/scan", json={"domain": "example.com"})
+    detector_mocks.rdap.side_effect = DomainLookupError(
+        DomainLookupErrorKind.PROVIDER_UNAVAILABLE,
+        "example.com",
+        "raw provider diagnostic",
+    )
+
+    second = client.post("/api/scan", json={"domain": "example.com"})
+
+    assert first.status_code == second.status_code == 200
+    assert second.json()["expiry_date"] == first.json()["expiry_date"]
+    assert second.json()["cert_expiry_date"] is not None
+    assert second.json()["dns_risk"] is True
+    assert "raw provider diagnostic" not in second.text
+    assert detector_mocks.certificate.call_count == 2
+    assert detector_mocks.takeover.call_count == 2
+
+
+def test_certificate_failure_preserves_rdap_and_dns_results(
+    client: TestClient, detector_mocks: _DetectorMocks
+) -> None:
+    """A transient certificate failure preserves the last TLS expiry date."""
+    first = client.post("/api/scan", json={"domain": "example.com"})
+    detector_mocks.certificate.side_effect = CertLookupError(
+        CertLookupErrorKind.TIMEOUT,
+        "example.com",
+        "raw TLS diagnostic",
+    )
+
+    second = client.post("/api/scan", json={"domain": "example.com"})
+
+    assert first.status_code == second.status_code == 200
+    assert second.json()["expiry_date"] == EXPIRY_DATE.isoformat()
+    assert second.json()["cert_expiry_date"] == first.json()["cert_expiry_date"]
+    assert second.json()["dns_risk"] is True
+    assert "raw TLS diagnostic" not in second.text
+    assert detector_mocks.rdap.call_count == 2
+    assert detector_mocks.takeover.call_count == 2
 
 
 def test_dns_failure_preserves_other_results_and_sanitizes_detail(
-    client: TestClient, detector_mocks: _DetectorMocks
+    client: TestClient,
+    detector_mocks: _DetectorMocks,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A classified DNS failure stays false and exposes only its category."""
+    """A transient takeover failure preserves its last risk and safe detail."""
+    first = client.post("/api/scan", json={"domain": "example.com"})
+    previous_detail = first.json()["dns_risk_detail"]
     detector_mocks.takeover.side_effect = TakeoverLookupError(
         TakeoverLookupErrorKind.DNS_TIMEOUT,
         "example.com",
         "secret raw DNS diagnostic",
     )
 
-    response = client.post("/api/scan", json={"domain": "example.com"})
+    with caplog.at_level("WARNING", logger=detection_routes.__name__):
+        second = client.post("/api/scan", json={"domain": "example.com"})
 
-    assert response.status_code == 200
-    payload = response.json()
+    assert first.status_code == second.status_code == 200
+    payload = second.json()
     assert payload["expiry_date"] == EXPIRY_DATE.isoformat()
     assert payload["cert_expiry_date"] is not None
-    assert payload["dns_risk"] is False
-    assert "category=dns_timeout" in payload["dns_risk_detail"]
-    assert "secret" not in payload["dns_risk_detail"]
-    detector_mocks.rdap.assert_called_once()
-    detector_mocks.certificate.assert_called_once()
+    assert payload["dns_risk"] is True
+    assert payload["dns_risk_detail"] == previous_detail
+    assert "secret raw DNS diagnostic" not in second.text
+    assert "secret raw DNS diagnostic" not in caplog.text
+    assert "category=dns_timeout" in caplog.text
+    assert "exception_type=TakeoverLookupError" in caplog.text
+    assert detector_mocks.rdap.call_count == 2
+    assert detector_mocks.certificate.call_count == 2
 
 
 def test_pattern_only_is_uncertain_and_not_dns_risk(
@@ -284,6 +439,62 @@ def test_pattern_only_is_uncertain_and_not_dns_risk(
     assert payload["dns_risk"] is False
     assert "confidence=pattern_only" in payload["dns_risk_detail"]
     assert "uncertain" in payload["dns_risk_detail"]
+
+
+def test_list_domains_orders_newest_then_highest_id(
+    client: TestClient,
+    db_session: Session,
+    detector_mocks: _DetectorMocks,
+) -> None:
+    """Stored domains use last_scanned descending and ID as a stable tie-breaker."""
+    older = Domain(
+        domain="older.example.com",
+        dns_risk=False,
+        last_scanned=datetime(2026, 7, 31, tzinfo=UTC),
+    )
+    tied_low = Domain(
+        domain="low.example.com",
+        dns_risk=False,
+        last_scanned=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+    tied_high = Domain(
+        domain="high.example.com",
+        dns_risk=False,
+        last_scanned=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+    db_session.add_all([older, tied_low, tied_high])
+    db_session.commit()
+
+    response = client.get("/api/domains")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == [
+        tied_high.id,
+        tied_low.id,
+        older.id,
+    ]
+
+
+def test_list_database_failure_returns_safe_error(
+    client: TestClient,
+    db_session: Session,
+    detector_mocks: _DetectorMocks,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A GET query failure returns the same sanitized database error."""
+    monkeypatch.setattr(
+        db_session,
+        "scalars",
+        Mock(side_effect=SQLAlchemyError("raw database exception")),
+    )
+
+    response = client.get("/api/domains")
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "Detection results could not be stored"
+    }
+    assert "raw database exception" not in response.text
 
 
 def test_database_failure_rolls_back_and_returns_safe_error(
