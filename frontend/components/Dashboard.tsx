@@ -118,7 +118,7 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
   }
 
   const summary = summarizeDomains(domains, today);
-  const listForMandate = domains.map((item) => ({
+  const domainOptions = domains.map((item) => ({
     id: item.id,
     domain: item.domain,
   }));
@@ -232,12 +232,12 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
                 Prava
               </span>
             </div>
-            <MandateSetup domains={listForMandate} apiBaseUrl={apiBaseUrl} />
+            <MandateSetup domains={domainOptions} apiBaseUrl={apiBaseUrl} />
           </aside>
         </div>
 
         <div className="aegis-rise" style={{ animationDelay: "180ms" }}>
-          <AgentDecisionLog domains={listForMandate} apiBaseUrl={apiBaseUrl} />
+          <AgentDecisionLog domains={domainOptions} apiBaseUrl={apiBaseUrl} />
         </div>
       </div>
     </div>

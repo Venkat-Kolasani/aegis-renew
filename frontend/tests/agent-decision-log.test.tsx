@@ -57,7 +57,74 @@ test("renders auto_renew, flag_for_review, and ignore distinctly with full reaso
     /Expiry horizons are healthy and no confirmed DNS takeover risk is present\./,
   );
   assert.match(markup, /Not a payment/);
-  assert.doesNotMatch(markup, /completed checkout|charged the mandate/i);
+  assert.doesNotMatch(
+    markup,
+    /complet(?:es|ed) checkout|charg(?:es|ed) (?:a |the )?mandate/i,
+  );
+});
+
+test("orders equal criticality_score decisions by ascending domain_id", () => {
+  const tied: RankDecision[] = [
+    {
+      domain_id: 3,
+      criticality_score: 50,
+      decision: "flag_for_review",
+      reason: "Third asset tied score.",
+    },
+    {
+      domain_id: 1,
+      criticality_score: 50,
+      decision: "flag_for_review",
+      reason: "First asset tied score.",
+    },
+    {
+      domain_id: 2,
+      criticality_score: 50,
+      decision: "ignore",
+      reason: "Second asset tied score.",
+    },
+  ];
+  const markup = renderToStaticMarkup(
+    <AgentDecisionLog domains={domains} initialDecisions={tied} />,
+  );
+  const first = markup.indexOf("urgent.example.com");
+  const second = markup.indexOf("healthy.example.com");
+  const third = markup.indexOf("review.example.com");
+  assert.ok(first >= 0 && second >= 0 && third >= 0);
+  assert.ok(first < second && second < third);
+});
+
+test("orders populated decisions by descending criticality_score", () => {
+  const markup = renderToStaticMarkup(
+    <AgentDecisionLog domains={domains} initialDecisions={decisions} />,
+  );
+  const urgent = markup.indexOf("urgent.example.com");
+  const review = markup.indexOf("review.example.com");
+  const healthy = markup.indexOf("healthy.example.com");
+  assert.ok(urgent >= 0 && review >= 0 && healthy >= 0);
+  assert.ok(urgent < review && review < healthy);
+  assert.match(markup, /94\/100[\s\S]*61\/100[\s\S]*12\/100/);
+});
+
+test("renders empty state when ranking returns no recommendations", () => {
+  const markup = renderToStaticMarkup(
+    <AgentDecisionLog domains={domains} initialDecisions={[]} />,
+  );
+  assert.match(markup, /data-state="empty"/);
+  assert.match(markup, /Ranking completed with no recommendations/);
+});
+
+test("marks retained decisions stale when domain id set changes", () => {
+  const markup = renderToStaticMarkup(
+    <AgentDecisionLog
+      domains={domains}
+      initialDecisions={decisions.slice(0, 2)}
+      initialRankedDomainIds={[1, 3]}
+    />,
+  );
+  assert.match(markup, /data-state="populated"/);
+  assert.match(markup, /Inventory changed since this ranking/);
+  assert.match(markup, /run ranking again/i);
 });
 
 test("renders loading state", () => {

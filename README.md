@@ -229,6 +229,8 @@ curl --fail --request POST http://localhost:8000/api/scan \
   --header 'Content-Type: application/json' \
   --data '{"domain":"example.com"}'
 curl --fail http://localhost:8000/api/domains
+# Use an id from the domains response above; 1 is valid only on an empty database
+# that just scanned its first domain.
 curl --fail --request POST http://localhost:8000/api/agent/rank \
   --header 'Content-Type: application/json' \
   --data '{"domain_ids":[1]}'
