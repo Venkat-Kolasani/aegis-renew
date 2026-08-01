@@ -41,6 +41,7 @@ from backend.payments.demo_constants import (
 from backend.routes import agent as agent_routes
 
 NOW = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+_REAL_GET_CURRENT_RENEWAL_QUOTE = agent_routes.get_current_renewal_quote
 
 
 @dataclass(frozen=True)
@@ -214,6 +215,43 @@ def test_multiple_domains_preserve_request_order_and_rank_once(
     assert _decision_count(db_session) == 2
 
 
+def test_mixed_results_request_quotes_only_for_auto_renew_domains(
+    client: TestClient,
+    db_session: Session,
+    service_mocks: _ServiceMocks,
+) -> None:
+    """Mixed results retain order while only auto-renew requests a quote."""
+    flagged = _add_domain(db_session, "mixed-flagged.example")
+    automatic = _add_domain(db_session, "mixed-auto.example")
+    ignored = _add_domain(db_session, "mixed-ignored.example")
+    _add_covering_mandate(db_session, automatic.id)
+    expected = [
+        _result(flagged.id, decision="flag_for_review", reason="Review."),
+        _result(automatic.id),
+        _result(ignored.id, decision="ignore", reason="Healthy."),
+    ]
+    _configure_results(service_mocks.ranking, expected)
+
+    response = client.post(
+        "/api/agent/rank",
+        json={"domain_ids": [flagged.id, automatic.id, ignored.id]},
+    )
+
+    assert response.status_code == 200
+    assert [item["domain_id"] for item in response.json()] == [
+        flagged.id,
+        automatic.id,
+        ignored.id,
+    ]
+    assert [item["decision"] for item in response.json()] == [
+        "flag_for_review",
+        "auto_renew",
+        "ignore",
+    ]
+    service_mocks.quote.assert_called_once()
+    assert service_mocks.quote.call_args.args[0] == automatic.id
+
+
 def test_fully_covered_auto_is_persisted_without_other_mutation(
     client: TestClient,
     db_session: Session,
@@ -302,6 +340,7 @@ def test_ignore_and_flag_recommendations_are_persisted_unchanged(
 
     assert response.status_code == 200
     assert response.json() == [item.model_dump() for item in expected]
+    service_mocks.quote.assert_not_called()
 
 
 def test_missing_domain_returns_404_before_external_boundaries(
@@ -402,6 +441,45 @@ def test_quote_exception_text_is_never_returned(
     assert response.status_code == 200
     assert response.json()[0]["decision"] == "flag_for_review"
     assert raw_message not in response.text
+
+
+def test_unexpected_quote_boundary_exception_fails_closed_without_mutation(
+    client: TestClient,
+    db_session: Session,
+    service_mocks: _ServiceMocks,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected quote-source error is sanitized and fails closed."""
+    raw_message = "sensitive raw quote response secret-unexpected-123"
+    domain = _add_domain(db_session, "unexpected-quote-error.example")
+    mandate = _add_covering_mandate(db_session, domain.id)
+    _configure_results(service_mocks.ranking, [_result(domain.id)])
+    domain_before = (domain.domain, domain.last_scanned)
+    mandate_before = (mandate.status, mandate.cap_amount, mandate.valid_until)
+    auxiliary_before = _auxiliary_record_count(db_session)
+    monkeypatch.setattr(
+        agent_routes,
+        "get_current_renewal_quote",
+        _REAL_GET_CURRENT_RENEWAL_QUOTE,
+    )
+    monkeypatch.setattr(
+        agent_routes,
+        "get_demo_renewal_quote",
+        Mock(side_effect=RuntimeError(raw_message)),
+    )
+
+    response = client.post("/api/agent/rank", json={"domain_ids": [domain.id]})
+
+    assert response.status_code == 200
+    assert response.json()[0]["decision"] == "flag_for_review"
+    assert raw_message not in response.text
+    persisted = db_session.scalars(select(AgentDecision)).one()
+    assert persisted.decision == "flag_for_review"
+    db_session.refresh(domain)
+    db_session.refresh(mandate)
+    assert (domain.domain, domain.last_scanned) == domain_before
+    assert (mandate.status, mandate.cap_amount, mandate.valid_until) == mandate_before
+    assert _auxiliary_record_count(db_session) == auxiliary_before == 0
 
 
 def test_ranking_error_is_sanitized_and_writes_nothing(

@@ -82,18 +82,21 @@ def get_current_renewal_quote(
             currency=demo_quote.currency,
             observed_at=observed_at,
         )
-    except (AttributeError, TypeError, ValueError) as exc:
+    except QuoteProviderError:
+        raise
+    except Exception as exc:
+        logger.warning(
+            "Quote provider boundary failed exception_type=%s",
+            type(exc).__name__,
+        )
         raise QuoteProviderError("Current renewal quote is unavailable") from exc
 
 
 def _require_existing_domains(session: Session, domain_ids: Sequence[int]) -> None:
     """Require every requested domain ID to exist before ranking."""
-    existing = {
-        domain.id
-        for domain in session.scalars(
-            select(Domain).where(Domain.id.in_(domain_ids))
-        )
-    }
+    existing = set(
+        session.scalars(select(Domain.id).where(Domain.id.in_(domain_ids)))
+    )
     if existing != set(domain_ids):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -282,7 +285,12 @@ def rank_requested_domains(
 
     recommendations = _rank_once(request.domain_ids)
     evaluated_at = datetime.now(UTC)
-    quotes = _quotes_for_domains(request.domain_ids, evaluated_at)
+    auto_renew_domain_ids = [
+        item.domain_id
+        for item in recommendations
+        if item.decision == "auto_renew"
+    ]
+    quotes = _quotes_for_domains(auto_renew_domain_ids, evaluated_at)
     try:
         mandates = _load_mandate_coverage(session, request.domain_ids)
     except SQLAlchemyError as exc:
