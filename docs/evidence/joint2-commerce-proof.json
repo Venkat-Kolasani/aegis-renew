@@ -1,0 +1,40 @@
+{
+  "proof_id": "JOINT-2",
+  "recorded_at_utc": "2026-08-01T08:47:32.655674+00:00",
+  "environment": "sandbox",
+  "sandbox_health": "ok",
+  "api_key_access": "verified (sk_test_ / pk_test_ against sandbox.api.prava.space)",
+  "test_card": "team-issued FutureBoX Visa (last4 2564); expiry 12/30; OTP 456789",
+  "mandate": {
+    "result": "active",
+    "merchant_name": "Aegis Demo Registrar",
+    "merchant_url_used": "https://example.com",
+    "merchant_country": "US",
+    "frequency": "yearly",
+    "scope": "listed",
+    "cap_amount": "18.00",
+    "currency": "USD",
+    "valid_until_utc": "2031-07-31T08:44:37.392Z",
+    "renews_at_utc": "2027-08-01T08:44:37.392Z",
+    "dashboard_status_observed": "Authorized / Active yearly mandate"
+  },
+  "mandate_charge": {
+    "result": "credentials_minted",
+    "amount": "18.00",
+    "currency": "USD",
+    "status_after_mint": "awaiting_result",
+    "credential_fields_present": [
+      "token",
+      "dynamicCvv",
+      "expiryMonth",
+      "expiryYear"
+    ]
+  },
+  "merchant_checkout": {
+    "completed": false,
+    "reason": "Destination merchant URL was a placeholder (https://example.com) with no checkout. No real domain registrar/hosting/SSL vendor with UCP or guest agent checkout was found in the discovery timebox (Namecheap/Porkbun/GoDaddy/Hover/Name.com lacked /.well-known/ucp). Prava UCP + Browser Harness currently targets Shopify merchants, not registrars. Charge outcome reported DECLINED because merchant checkout was not completed.",
+    "selected_path": "self_owned_demo_merchant",
+    "product_claim": "Keep autonomous yearly renewal under a merchant-locked mandate. VENKAT-3 will implement a clearly marked DEMO registrar checkout that accepts the Prava network token, then remint/bind the mandate to that merchant URL and complete checkout end to end. Do not claim completed merchant checkout until that succeeds."
+  },
+  "production_access": "Do not apply until sandbox mandate + charge + completed DEMO/real merchant checkout + report APPROVED all succeed."
+}

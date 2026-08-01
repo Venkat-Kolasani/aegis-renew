@@ -17,3 +17,6 @@ coverage/
 
 # Local organizer reference
 Agentic Commerce Hackathon Builder Handbook.pdf
+
+# Local JOINT-2 proof artifacts (never commit)
+.prava-*
