@@ -48,9 +48,29 @@ npm test
 ```
 
 The dashboard currently renders six-plus contract-shaped domain fixtures with
-green/yellow/red expiry urgency and a distinct DNS takeover signal. `npm test`
-covers empty, loading, error, healthy, near-expiry, urgent, and DNS-risk states;
-live API data is added in the follow-up dashboard slice.
+green/yellow/red expiry urgency and a distinct DNS takeover signal, plus the
+yearly mandate setup panel. `npm test` covers empty, loading, error, healthy,
+near-expiry, urgent, DNS-risk, and mandate idle/success/cancel/failure states;
+live detection data is added in VENKAT-4.
+
+The Next.js app proxies `/aegis-api/*` to the FastAPI `/api/*` routes so the
+browser never talks to Prava with a secret key.
+
+### Manual sandbox mandate approval (VENKAT-2)
+
+1. Put sandbox keys only in the ignored root `.env`:
+   `PRAVA_SANDBOX_BASE_URL`, `PRAVA_PUBLISHABLE_KEY`, `PRAVA_SECRET_KEY`.
+2. Apply schema and insert at least one domain row matching a fixture id, e.g.
+   `billing.aegis-demo.test` as id `2` (mandate setup looks up `domain_id`).
+3. Run API + UI: `uvicorn backend.main:app --reload` and `cd frontend && npm run dev`.
+4. Open the dashboard → **Yearly renewal mandate** → Start passkey approval.
+5. In the Prava window use the **team** sandbox card (expiry `12/30`), OTP
+   `456789`, then complete the passkey prompt.
+6. Confirm the mandate is Active in the Prava dashboard. Do not paste secret
+   keys, network tokens, dynamic CVVs, or raw `mdt_` ids into the repo.
+
+Merchant defaults are the JOINT-2 **DEMO** registrar placeholders until
+VENKAT-3 lands a checkout-capable merchant URL.
 
 ## Configuration and database
 
