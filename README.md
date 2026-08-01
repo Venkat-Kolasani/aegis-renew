@@ -113,6 +113,33 @@ reported as uncertain detail and persists `dns_risk=false`. Run takeover-risk
 scans only for hostnames you own or are explicitly authorized to assess; the
 endpoint does not enumerate other subdomains.
 
+### Structured domain ranking
+
+`rank_domains(domain_ids)` reads only the requested domains' normalized name,
+domain and certificate expiry proximity, DNS-risk flag and bounded sanitized
+detail, plus at most two recent recommendations per domain. It submits those
+allowlisted facts in one batch to `gpt-4o-mini` through the OpenAI SDK's strict
+Structured Outputs parsing and returns one typed result per requested ID:
+`domain_id`, integer `criticality_score` from 0–100, `decision` (`auto_renew`,
+`flag_for_review`, or `ignore`), and a bounded reason. Set `OPENAI_API_KEY` in
+the backend process environment; never commit it.
+
+The SDK's own retries are disabled. Aegis makes at most three total attempts,
+retrying only transient connection, timeout, rate-limit, and retryable server
+failures with bounded backoff. Cost controls are one batched request for up to
+20 unique domains, two history records per domain, bounded input text, and a
+2,000-output-token ceiling. Missing records, database failures, provider
+failures, refusals, malformed structured output, or mismatched result IDs
+degrade to a standardized `flag_for_review` result without exposing raw error
+text.
+
+Ranking is advisory, side-effect-free, and cannot spend money: it reads facts
+but does not persist decisions, invoke renewal execution, or mutate domain
+state. TLS and DNS observations affect urgency; they are not separate renewal
+purchases. Deterministic mandate, merchant, quote, currency, and cap checks
+come later, so a recommendation is not proof of spending authority or a
+successful renewal.
+
 ## Frontend development
 
 ```bash
