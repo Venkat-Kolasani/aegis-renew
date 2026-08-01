@@ -1,0 +1,19 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Node.js
+node_modules/
+.next/
+coverage/
+
+# Local organizer reference
+Agentic Commerce Hackathon Builder Handbook.pdf

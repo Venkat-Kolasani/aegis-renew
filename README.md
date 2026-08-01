@@ -33,6 +33,20 @@ npm run build
 The Phase 0 frontend is an App Router dashboard shell. Domain and payment
 components are intentionally deferred to their owner-specific prompts.
 
+## Configuration and database
+
+Copy `.env.example` to `.env` and fill local values only. `PRAVA_SECRET_KEY`
+is server-only; never use a public browser environment-variable prefix for it.
+
+Create a local Postgres database and apply the initial schema:
+
+```bash
+psql "$DATABASE_URL" -f backend/db/schema.sql
+```
+
+The schema keeps detection results, recommendations, mandate metadata, and
+sanitized payment outcomes. It never stores payment tokens or dynamic CVVs.
+
 ## Build disclosure
 
 The Aegis idea and public integration research existed before the event. All
