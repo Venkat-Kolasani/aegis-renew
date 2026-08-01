@@ -51,9 +51,9 @@ sanitized payment outcomes. It never stores payment tokens or dynamic CVVs.
 
 ## Continuous integration
 
-Every push and pull request runs backend `pytest`, frontend lint, and a frontend
-production build through GitHub Actions. Run the same commands locally before
-pushing a build slice.
+Every push and pull request runs backend `pytest`, frontend render tests, lint,
+and a frontend production build through GitHub Actions. Run the same commands
+locally before pushing a build slice.
 
 ## Build disclosure
 
