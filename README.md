@@ -52,6 +52,31 @@ malformed peer data, and missing certificates raise a classified
 Domain renewal does not automatically renew, replace, or repair a TLS
 certificate; TLS expiry is an independent risk signal.
 
+### Dangling-CNAME and takeover-risk detection
+
+`check_takeover_risk()` inspects only the exact authorized hostname supplied by
+the caller and follows its CNAME chain for at most 10 hops. It never enumerates
+or brute-forces subdomains. Targets are compared at DNS-label boundaries with
+vulnerable entries from EdOverflow's canonical
+[`can-i-take-over-xyz`](https://github.com/EdOverflow/can-i-take-over-xyz)
+fingerprints, pinned to commit
+`5bd4e12837911c8475486f1da922c9b9c706e632` (refresh: 2025-02-08).
+
+A vulnerable provider match alone returns `confidence="pattern_only"`. High
+confidence requires either the upstream HTTP fingerprint in one bounded live
+response or an exact target NXDOMAIN when upstream defines NXDOMAIN as its
+fingerprint. Timeouts, blocked/private targets, provider errors, truncated
+responses, and ambiguous results never become high confidence. A normal live
+resource returns `confidence="none"`.
+
+`has_dangling_cname=true` means a vulnerable provider pattern was found; it is
+not a claim of compromise. Later API integration must set confirmed
+`dns_risk=true` only for `confidence="high"` and must show `pattern_only` as
+uncertain. Fingerprints can become stale and provider behavior can change, so
+results still require authorized human review. Test only hostnames you own or
+are expressly authorized to assess. Aegis detects risk but never registers,
+claims, modifies, or exploits provider resources.
+
 ## Frontend development
 
 ```bash
