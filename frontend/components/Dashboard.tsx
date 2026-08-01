@@ -29,46 +29,22 @@ function describePartialScan(result: ScanResult): string {
   return result.dns_risk_detail ? `${base} DNS detail: ${result.dns_risk_detail}` : base;
 }
 
-function Stat({
+function TelemetryItem({
   label,
   value,
-  tone = "default",
-  delay,
+  hint,
 }: {
   label: string;
   value: number;
-  tone?: "default" | "danger" | "warn" | "dns";
-  delay: string;
+  hint?: string;
 }) {
-  const toneClass =
-    tone === "danger"
-      ? "border-danger/15 bg-danger-soft"
-      : tone === "warn"
-        ? "border-warn/15 bg-warn-soft"
-        : tone === "dns"
-          ? "border-dns/15 bg-dns-soft"
-          : "border-line bg-bg-elevated";
-
-  const valueClass =
-    tone === "danger"
-      ? "text-danger"
-      : tone === "warn"
-        ? "text-warn"
-        : tone === "dns"
-          ? "text-dns"
-          : "text-ink";
-
   return (
-    <div
-      className={`aegis-rise rounded-xl border px-5 py-4 ${toneClass}`}
-      style={{ animationDelay: delay }}
-    >
-      <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+    <div className="aegis-telemetry-item">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
         {label}
-      </dt>
-      <dd className={`mt-2 font-display text-3xl font-semibold tabular-nums tracking-tight ${valueClass}`}>
-        {value}
-      </dd>
+      </p>
+      <p className="mt-1 font-display text-2xl font-semibold tabular-nums text-ink">{value}</p>
+      {hint ? <p className="mt-0.5 text-[11px] text-ink-muted">{hint}</p> : null}
     </div>
   );
 }
@@ -151,101 +127,105 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
   }));
 
   return (
-    <main className="aegis-fade-in min-h-screen px-5 py-8 sm:px-8 sm:py-12">
-      <div className="mx-auto flex max-w-6xl flex-col gap-10">
-        <header className="aegis-rise flex flex-col gap-6 border-b border-line pb-8 sm:flex-row sm:items-end sm:justify-between">
-          <div className="max-w-2xl space-y-4">
-            <p className="font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-              Aegis
+    <div className="aegis-fade-in px-5 py-8 sm:px-8 sm:py-10">
+      <div className="mx-auto flex max-w-6xl flex-col gap-8">
+        <header className="aegis-rise flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink-faint">
+              Operations
             </p>
-            <div className="space-y-2">
-              <h1 className="text-lg font-medium text-ink sm:text-xl">
-                Infrastructure renewal under mandate control
-              </h1>
-              <p className="max-w-xl text-sm leading-relaxed text-ink-muted sm:text-[15px]">
-                Monitor domain expiry, TLS certificates, and confirmed DNS takeover risk.
-                Renewals execute only when a user-approved Prava mandate covers the merchant
-                and amount.
-              </p>
-            </div>
+            <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+              Risk inventory
+            </h1>
+            <p className="mt-2 max-w-lg text-sm text-ink-muted">
+              Scans persist to Postgres. Empty fields mean a detector missed data—not an all-clear.
+            </p>
           </div>
-          <div className="shrink-0 rounded-lg border border-line bg-bg-elevated px-3 py-2 text-xs text-ink-muted">
-            Live inventory · <span className="font-mono text-ink">/api/domains</span>
-          </div>
+          <button
+            type="button"
+            onClick={() => void loadDomains()}
+            className="aegis-btn aegis-btn-secondary self-start sm:self-auto"
+            disabled={loading || scanning}
+          >
+            Refresh inventory
+          </button>
         </header>
 
-        <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Stat label="Monitored" value={summary.monitored} delay="40ms" />
-          <Stat label="Urgent" value={summary.urgent} tone="danger" delay="80ms" />
-          <Stat label="Review soon" value={summary.reviewSoon} tone="warn" delay="120ms" />
-          <Stat label="DNS risk" value={summary.dnsRisk} tone="dns" delay="160ms" />
-        </dl>
+        <div className="aegis-rise aegis-telemetry" style={{ animationDelay: "60ms" }}>
+          <TelemetryItem label="Monitored" value={summary.monitored} />
+          <TelemetryItem label="Urgent" value={summary.urgent} hint="≤ 7 days" />
+          <TelemetryItem label="Review" value={summary.reviewSoon} hint="≤ 30 days" />
+          <TelemetryItem label="DNS flagged" value={summary.dnsRisk} hint="high confidence" />
+        </div>
 
-        <section className="aegis-rise space-y-5" style={{ animationDelay: "180ms" }}>
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-ink">Domain risk inventory</h2>
-              <p className="mt-1 max-w-2xl text-sm text-ink-muted">
-                Null detector fields are partial results from an unavailable external service—not
-                a healthy signal.
-              </p>
+        <div
+          className="aegis-rise grid gap-8 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] xl:items-start"
+          style={{ animationDelay: "120ms" }}
+        >
+          <section className="space-y-5">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-ink">Scan &amp; inventory</h2>
+              <span className="font-mono text-[10px] text-ink-faint">GET /api/domains</span>
             </div>
-            <button
-              type="button"
-              onClick={() => void loadDomains()}
-              className="aegis-btn aegis-btn-secondary"
-              disabled={loading || scanning}
+
+            <form
+              className="rounded-xl border border-line bg-bg-elevated p-4 shadow-[0_1px_0_rgba(12,18,34,0.04)]"
+              onSubmit={(event) => void onScan(event)}
             >
-              Refresh
-            </button>
-          </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <label className="block flex-1 space-y-1.5 text-sm text-ink">
+                  <span className="font-medium">Hostname</span>
+                  <input
+                    className="aegis-input font-mono text-[15px]"
+                    placeholder="your-domain.com"
+                    value={scanInput}
+                    onChange={(event) => setScanInput(event.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={scanning}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={scanning || loading}
+                  className="aegis-btn aegis-btn-primary min-w-[7.5rem] sm:mb-px"
+                >
+                  {scanning ? "Scanning…" : "Run scan"}
+                </button>
+              </div>
+              <p className="mt-3 text-xs text-ink-faint">
+                Only scan assets you own or are explicitly authorized to assess.
+              </p>
+            </form>
 
-          <form
-            className="aegis-panel flex flex-col gap-3 rounded-xl p-4 sm:flex-row sm:items-end"
-            onSubmit={(event) => void onScan(event)}
-          >
-            <label className="block flex-1 space-y-1.5 text-sm text-ink">
-              <span className="font-medium">Scan an authorized hostname</span>
-              <input
-                className="aegis-input font-mono"
-                placeholder="example.com"
-                value={scanInput}
-                onChange={(event) => setScanInput(event.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                disabled={scanning}
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={scanning || loading}
-              className="aegis-btn aegis-btn-accent min-w-[8.5rem]"
-            >
-              {scanning ? "Scanning…" : "Scan now"}
-            </button>
-          </form>
+            {scanError ? (
+              <p role="alert" className="text-sm font-medium text-danger">
+                {scanError}
+              </p>
+            ) : null}
+            {scanMessage ? (
+              <p
+                role="status"
+                className="rounded-lg border border-accent/25 bg-accent-soft px-3 py-2.5 text-sm text-accent"
+              >
+                {scanMessage}
+              </p>
+            ) : null}
 
-          {scanError ? (
-            <p role="alert" className="text-sm font-medium text-danger">
-              {scanError}
-            </p>
-          ) : null}
-          {scanMessage ? (
-            <p
-              role="status"
-              className="rounded-lg border border-accent/20 bg-accent-soft px-3 py-2 text-sm text-accent"
-            >
-              {scanMessage}
-            </p>
-          ) : null}
+            <DomainList domains={domains} loading={loading} error={error} today={today} />
+          </section>
 
-          <DomainList domains={domains} loading={loading} error={error} today={today} />
-        </section>
-
-        <div className="aegis-rise" style={{ animationDelay: "240ms" }}>
-          <MandateSetup domains={listForMandate} apiBaseUrl={apiBaseUrl} />
+          <aside className="xl:sticky xl:top-6">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-ink">Renewal mandate</h2>
+              <span className="rounded bg-copper-soft px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-copper">
+                Prava
+              </span>
+            </div>
+            <MandateSetup domains={listForMandate} apiBaseUrl={apiBaseUrl} />
+          </aside>
         </div>
       </div>
-    </main>
+    </div>
   );
 }

@@ -138,7 +138,7 @@ cd frontend
 npm run dev
 ```
 
-Open the dashboard. Use **Scan now** with a hostname you own or are authorized to
+Open the dashboard at **http://localhost:3000/dashboard** (marketing home is `/`). Use **Scan now** with a hostname you own or are authorized to
 assess. The UI calls same-origin `/aegis-api/scan` → FastAPI `POST /api/scan`,
 then refreshes `/aegis-api/domains`. Null expiry fields are partial detector
 results, not “healthy.” Mandate setup uses whatever domains are currently stored.
