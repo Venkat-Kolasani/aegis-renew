@@ -22,8 +22,9 @@ Run the complete backend suite from the repository root:
 python -m pytest backend/tests -q
 ```
 
-The Phase 0 API exposes `GET /health`; business routes are intentionally typed
-501 placeholders until their owner begins the corresponding build prompt.
+The API exposes `GET /health` plus the persisted detection routes documented
+below. Set up Postgres and export `DATABASE_URL` as described in
+[Configuration and database](#configuration-and-database) before starting it.
 
 ### Domain expiry detection
 
@@ -80,6 +81,36 @@ risk but cannot eliminate DNS rebinding between validation and the HTTP
 connection. Run live probing only for hostnames you own or are expressly
 authorized to assess. Aegis detects risk but never registers, claims, modifies,
 or exploits provider resources.
+
+### Detection API
+
+Apply `backend/db/schema.sql`, export the Postgres `DATABASE_URL`, and start the
+backend before calling these routes. List stored scans:
+
+```bash
+curl --fail http://localhost:8000/api/domains
+```
+
+Scan and persist one exact authorized hostname:
+
+```bash
+curl --fail --request POST http://localhost:8000/api/scan \
+  --header 'Content-Type: application/json' \
+  --data '{"domain":"owned.example.com"}'
+```
+
+`POST /api/scan` normalizes the hostname, runs RDAP, certificate, and takeover
+detection independently, then atomically upserts the available results. A
+classified external-service failure leaves only that detector's field null or
+conservative while the other successful facts are returned and stored. RDAP,
+crt.sh, direct TLS, DNS, the pinned fingerprint source, and HTTP confirmation
+can still time out, rate-limit, or return incomplete data.
+
+`dns_risk=true` is stored only for `confidence="high"`, which is strong live
+evidence requiring review rather than proof of compromise. `pattern_only` is
+reported as uncertain detail and persists `dns_risk=false`. Run takeover-risk
+scans only for hostnames you own or are explicitly authorized to assess; the
+endpoint does not enumerate other subdomains.
 
 ## Frontend development
 
