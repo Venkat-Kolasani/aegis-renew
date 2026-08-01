@@ -64,7 +64,9 @@ export default function DomainList({
     return (
       <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/30 p-8 text-center">
         <p className="text-sm font-medium text-slate-200">No domains scanned yet.</p>
-        <p className="mt-1 text-sm text-slate-500">Add a domain to start monitoring expiry and takeover signals.</p>
+        <p className="mt-1 text-sm text-slate-500">
+          Use Scan now with a hostname you own or are authorized to assess.
+        </p>
       </div>
     );
   }

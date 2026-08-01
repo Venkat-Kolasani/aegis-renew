@@ -123,11 +123,39 @@ npm run build
 npm test
 ```
 
-The dashboard currently renders six-plus contract-shaped domain fixtures with
-green/yellow/red expiry urgency and a distinct DNS takeover signal, plus the
-yearly mandate setup panel. `npm test` covers empty, loading, error, healthy,
-near-expiry, urgent, DNS-risk, and mandate idle/success/cancel/failure states;
-live detection data is added in VENKAT-4.
+### Local two-process UI (VENKAT-4)
+
+Run API and UI together from the repository root (Postgres + `DATABASE_URL` required
+for detection routes):
+
+```bash
+# terminal 1
+uvicorn backend.main:app --reload
+
+# terminal 2
+cd frontend
+# optional: AEGIS_API_ORIGIN=http://localhost:8000
+npm run dev
+```
+
+Open the dashboard. Use **Scan now** with a hostname you own or are authorized to
+assess. The UI calls same-origin `/aegis-api/scan` → FastAPI `POST /api/scan`,
+then refreshes `/aegis-api/domains`. Null expiry fields are partial detector
+results, not “healthy.” Mandate setup uses whatever domains are currently stored.
+
+Equivalent curl:
+
+```bash
+curl --fail --request POST http://localhost:8000/api/scan \
+  --header 'Content-Type: application/json' \
+  --data '{"domain":"example.com"}'
+curl --fail http://localhost:8000/api/domains
+```
+
+The dashboard loads live inventory from `GET /api/domains` (via `/aegis-api`),
+shows loading / empty / error / populated states, and keeps the yearly mandate
+panel. `npm test` covers DomainList visual states, mandate UI states, and API
+parser helpers with mocked contract shapes.
 
 The Next.js app proxies `/aegis-api/*` to the FastAPI `/api/*` routes so the
 browser never talks to Prava with a secret key.
@@ -138,10 +166,11 @@ browser never talks to Prava with a secret key.
    `PRAVA_SANDBOX_BASE_URL`, `PRAVA_PUBLISHABLE_KEY`, `PRAVA_SECRET_KEY`.
    For the Next rewrite, set server-only `AEGIS_API_ORIGIN=http://localhost:8000`
    (defaults to that if unset).
-2. Apply schema and insert at least one domain row matching a fixture id, e.g.
-   `billing.aegis-demo.test` as id `2` (mandate setup looks up `domain_id`).
+2. Apply schema. Domains appear after **Scan now** (or `POST /api/scan`); mandate
+   setup lists whatever rows are stored.
 3. Run API + UI: `uvicorn backend.main:app --reload` and `cd frontend && npm run dev`.
-4. Open the dashboard → **Yearly renewal mandate** → Start passkey approval.
+4. Open the dashboard → scan at least one domain → **Yearly renewal mandate** →
+   Start passkey approval.
 5. In the Prava window use the **team** sandbox card (expiry `12/30`) and the
    sandbox OTP from the Prava docs/team email when asked, then complete the
    passkey prompt.
