@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -50,12 +51,26 @@ class MandateReportResult:
     visa_confirmation: str | None
 
 
-def list_active_mandates(*, customer_id: str | None = None) -> list[dict[str, Any]]:
-    """List standing mandates and return active ones (ids for server use only)."""
+@dataclass(frozen=True, slots=True)
+class ProviderMandate:
+    """Validated provider mandate facts with an ephemeral raw identifier."""
+
+    provider_id: str
+    customer_id: str | None
+    merchant_name: str
+    merchant_url: str
+    merchant_country: str
+    cap_amount: Decimal
+    currency: str
+    frequency: str
+    status: str
+    valid_until: datetime
+
+
+def list_provider_mandates(*, customer_id: str) -> list[ProviderMandate]:
+    """Return validated standing mandates for one server-derived customer."""
     load_local_env()
-    params: dict[str, str] = {"standing_only": "true"}
-    if customer_id:
-        params["customer_id"] = customer_id
+    params = {"standing_only": "true", "customer_id": customer_id}
     try:
         response = httpx.get(
             f"{_prava_base_url()}/v1/mandates",
@@ -74,18 +89,135 @@ def list_active_mandates(*, customer_id: str | None = None) -> list[dict[str, An
             status_code=response.status_code,
         )
 
-    payload = response.json()
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise PravaMandateError(
+            "Prava mandate list returned a malformed payload"
+        ) from exc
     if not isinstance(payload, dict):
         raise PravaMandateError("Prava mandate list returned a malformed payload")
     mandates = payload.get("mandates")
     if not isinstance(mandates, list):
-        return []
-    active = [
-        item
+        raise PravaMandateError("Prava mandate list returned a malformed payload")
+
+    parsed = [
+        mandate
         for item in mandates
-        if isinstance(item, dict) and item.get("status") == "active"
+        if isinstance(item, dict)
+        and (mandate := _parse_provider_mandate(item)) is not None
     ]
-    return active
+    if mandates and not parsed:
+        raise PravaMandateError("Prava mandate list returned no usable mandates")
+    return parsed
+
+
+def _parse_provider_mandate(item: dict[str, Any]) -> ProviderMandate | None:
+    """Parse one provider row without retaining unexpected response fields."""
+    merchant = _mapping_value(item, "merchant", "merchantDetails", "merchant_details")
+    provider_id = _string_value(item, "id", "mandateId", "mandate_id")
+    if merchant is None:
+        merchant_name = _string_value(item, "merchantName", "merchant_name")
+        merchant_url = _string_value(item, "merchantUrl", "merchant_url")
+        merchant_country = _string_value(
+            item, "merchantCountry", "merchant_country"
+        )
+    else:
+        merchant_name = _string_value(
+            merchant, "name", "merchantName", "merchant_name"
+        )
+        merchant_url = _string_value(
+            merchant, "url", "merchantUrl", "merchant_url"
+        )
+        merchant_country = _string_value(
+            merchant,
+            "country_code_iso2",
+            "countryCodeIso2",
+            "merchantCountry",
+            "merchant_country",
+        )
+    cap_amount = _decimal_value(
+        item, "capAmount", "cap_amount", "maxAmount", "max_amount", "amount"
+    )
+    currency = _string_value(item, "currency")
+    frequency = _string_value(
+        item, "recurringFrequency", "recurring_frequency", "frequency"
+    )
+    status = _string_value(item, "status")
+    valid_until = _datetime_value(
+        item, "validUntil", "valid_until", "expiresAt", "expires_at"
+    )
+    if not all(
+        (
+            provider_id,
+            merchant_name,
+            merchant_url,
+            merchant_country,
+            currency,
+            frequency,
+            status,
+        )
+    ) or cap_amount is None or valid_until is None:
+        logger.warning("Ignored malformed Prava mandate row")
+        return None
+    return ProviderMandate(
+        provider_id=provider_id,
+        customer_id=_string_value(item, "customerId", "customer_id"),
+        merchant_name=merchant_name,
+        merchant_url=merchant_url,
+        merchant_country=merchant_country.upper(),
+        cap_amount=cap_amount,
+        currency=currency.upper(),
+        frequency=frequency.lower(),
+        status=status.lower(),
+        valid_until=valid_until,
+    )
+
+
+def _mapping_value(item: dict[str, Any], *names: str) -> dict[str, Any] | None:
+    """Return the first mapping found under the supplied provider aliases."""
+    for name in names:
+        value = item.get(name)
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _string_value(item: dict[str, Any], *names: str) -> str:
+    """Return one stripped provider string without coercing arbitrary values."""
+    for name in names:
+        value = item.get(name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _decimal_value(item: dict[str, Any], *names: str) -> Decimal | None:
+    """Parse one finite positive provider amount as an exact Decimal."""
+    for name in names:
+        value = item.get(name)
+        try:
+            amount = Decimal(str(value))
+            quantized = amount.quantize(Decimal("0.01"))
+        except (ValueError, TypeError, ArithmeticError):
+            continue
+        if amount.is_finite() and amount > 0:
+            return quantized
+    return None
+
+
+def _datetime_value(item: dict[str, Any], *names: str) -> datetime | None:
+    """Parse one provider timestamp and require timezone information."""
+    raw = _string_value(item, *names)
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(UTC)
 
 
 def charge_mandate(
@@ -120,7 +252,12 @@ def charge_mandate(
             status_code=response.status_code,
         )
 
-    payload = response.json()
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise PravaMandateError(
+            "Prava mandate charge returned a malformed payload"
+        ) from exc
     if not isinstance(payload, dict):
         raise PravaMandateError("Prava mandate charge returned a malformed payload")
 
@@ -197,35 +334,36 @@ def report_mandate_charge(
             status_code=response.status_code,
         )
 
-    payload = response.json()
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise PravaMandateError(
+            "Prava mandate report returned a malformed payload"
+        ) from exc
     if not isinstance(payload, dict):
         raise PravaMandateError("Prava mandate report returned a malformed payload")
 
+    report_status = payload.get("status")
+    visa_confirmation = payload.get("visaConfirmation") or payload.get(
+        "visa_confirmation"
+    )
+    if (
+        not isinstance(report_status, str)
+        or report_status.strip().lower() not in {"confirmed", "completed", "succeeded"}
+        or not isinstance(visa_confirmation, str)
+        or visa_confirmation.strip().upper() != "SUCCESS"
+    ):
+        raise PravaMandateError("Prava mandate report was not confirmed")
+
     return MandateReportResult(
-        status=str(payload.get("status") or ""),
+        status=report_status,
         mandate_status=(
             str(payload["mandateStatus"])
             if isinstance(payload.get("mandateStatus"), str)
             else None
         ),
-        visa_confirmation=(
-            str(payload["visaConfirmation"])
-            if isinstance(payload.get("visaConfirmation"), str)
-            else None
-        ),
+        visa_confirmation=visa_confirmation,
     )
-
-
-def find_active_demo_mandate(
-    *,
-    customer_id: str,
-    merchant_name: str,
-) -> dict[str, Any] | None:
-    """Find an active listed mandate for the DEMO merchant by display name."""
-    for mandate in list_active_mandates(customer_id=customer_id):
-        if mandate.get("merchantName") == merchant_name and mandate.get("status") == "active":
-            return mandate
-    return None
 
 
 # Re-export configuration error for callers that only import this module.
@@ -233,10 +371,10 @@ __all__ = [
     "MandateChargeCredentials",
     "MandateChargeResult",
     "MandateReportResult",
+    "ProviderMandate",
     "PravaConfigurationError",
     "PravaMandateError",
     "charge_mandate",
-    "find_active_demo_mandate",
-    "list_active_mandates",
+    "list_provider_mandates",
     "report_mandate_charge",
 ]

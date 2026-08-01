@@ -4,7 +4,7 @@
   "environment": "sandbox",
   "sandbox_health": "ok",
   "api_key_access": "verified (sk_test_ / pk_test_ against sandbox.api.prava.space)",
-  "test_card": "team-issued FutureBoX Visa (last4 2564); expiry 12/30; OTP 456789",
+  "test_card": "team-issued sandbox card; all card and verification details redacted",
   "mandate": {
     "result": "active",
     "merchant_name": "Aegis Demo Registrar",
@@ -23,12 +23,7 @@
     "amount": "18.00",
     "currency": "USD",
     "status_after_mint": "awaiting_result",
-    "credential_fields_present": [
-      "token",
-      "dynamicCvv",
-      "expiryMonth",
-      "expiryYear"
-    ]
+    "ephemeral_payment_credential": "issued and consumed during the proof; values and field details omitted"
   },
   "merchant_checkout": {
     "completed": false,

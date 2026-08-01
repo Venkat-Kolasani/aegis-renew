@@ -3,9 +3,12 @@ import { test } from "node:test";
 
 import {
   isValidScanDomain,
+  executePayment,
   parseDomainSummary,
+  parsePaymentExecutionResult,
   parseRankDecision,
   parseScanResult,
+  reconcileMandate,
   rankDomains,
   resolveApiBase,
   type DomainSummary,
@@ -119,6 +122,72 @@ test("parseRankDecision accepts contract decisions and rejects invalid rows", ()
     }),
     null,
   );
+});
+
+test("parsePaymentExecutionResult accepts only the locked response fields", () => {
+  assert.deepEqual(
+    parsePaymentExecutionResult({
+      payment_status: "reconciliation_required",
+      merchant_order_ref: "DEMO-REN-20260802-ABC12345",
+      completed: true,
+    }),
+    {
+      payment_status: "reconciliation_required",
+      merchant_order_ref: "DEMO-REN-20260802-ABC12345",
+      completed: true,
+    },
+  );
+  assert.equal(
+    parsePaymentExecutionResult({
+      payment_status: "completed",
+      merchant_order_ref: null,
+      completed: "true",
+    }),
+    null,
+  );
+});
+
+test("executePayment sends only domain_id and parses the locked result", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody = "";
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = String(init?.body);
+    return {
+      ok: true,
+      json: async () => ({
+        payment_status: "completed",
+        merchant_order_ref: "DEMO-REN-20260802-ABC12345",
+        completed: true,
+      }),
+    } as Response;
+  }) as typeof fetch;
+  try {
+    const result = await executePayment(7, "http://example.test");
+    assert.deepEqual(JSON.parse(requestBody), { domain_id: 7 });
+    assert.equal(result.payment_status, "completed");
+    assert.equal(result.completed, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("reconcileMandate sends only domain_id and accepts active status", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody = "";
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = String(init?.body);
+    return {
+      ok: true,
+      json: async () => ({ status: "active" }),
+    } as Response;
+  }) as typeof fetch;
+  try {
+    const result = await reconcileMandate(7, "http://example.test");
+    assert.deepEqual(JSON.parse(requestBody), { domain_id: 7 });
+    assert.equal(result.status, "active");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("summarizeDomains counts urgency and DNS risk", () => {

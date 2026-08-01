@@ -238,8 +238,11 @@ curl --fail --request POST http://localhost:8000/api/agent/rank \
 
 The dashboard loads live inventory from `GET /api/domains` (via `/aegis-api`),
 shows loading / empty / error / populated states, the yearly mandate panel, and
-the decision log. `npm test` covers DomainList, mandate UI, decision-log states,
-and API parser helpers with mocked contract shapes.
+the decision log. The covered-renewal panel calls `POST /api/payments/execute`
+with only the selected domain id and displays `payment_status`,
+`merchant_order_ref`, and `completed`; it contains no payment-credential fields.
+`npm test` covers DomainList, mandate UI, decision-log and execution states, and
+API parser helpers with mocked contract shapes.
 
 The Next.js app proxies `/aegis-api/*` to the FastAPI `/api/*` routes so the
 browser never talks to Prava with a secret key.
@@ -255,31 +258,98 @@ browser never talks to Prava with a secret key.
 3. Run API + UI: `uvicorn backend.main:app --reload` and `cd frontend && npm run dev`.
 4. Open the dashboard → scan at least one domain → **Yearly renewal mandate** →
    Start passkey approval.
-5. In the Prava window use the **team** sandbox card (expiry `12/30`) and the
-   sandbox OTP from the Prava docs/team email when asked, then complete the
-   passkey prompt.
-6. Confirm the mandate is Active in the Prava dashboard. Do not paste secret
+5. In the Prava window use the **team** sandbox card details supplied out of
+   band and the current sandbox verification instructions from Prava, then
+   complete the passkey prompt. Never copy those values into the repository.
+6. Confirm the mandate is Active in the Prava dashboard, then select **I
+   approved it—sync mandate**. The browser sends only the domain database id;
+   the server verifies current provider coverage and persists only its digest
+   and sanitized binding metadata.
+7. Run ranking again so VIVEK-7 evaluates the newly persisted active coverage.
+   Do not paste secret
    keys, network tokens, dynamic CVVs, or raw `mdt_` ids into the repo.
 
 Merchant defaults are the JOINT-2 **DEMO** registrar (`Aegis Demo Registrar`,
-`$18/year`). Checkout is completed by the VENKAT-3 DEMO adapter
-(`POST /api/demo/registrar/checkout`), not a live registrar storefront.
+`$18/year`). Those merchant, cap, currency, and yearly-frequency values are
+display-only fixed product configuration; the only editable setup choice is the
+monitored domain. Checkout is completed internally by the VENKAT-3 DEMO adapter,
+not a live registrar storefront.
 
 ### DEMO registrar checkout (VENKAT-3)
 
 - Quote: `GET /api/demo/registrar/quote` → fixed `$18.00 USD` domain renewal.
-- Checkout: `POST /api/demo/registrar/checkout` accepts a Prava network token +
-  dynamic CVV shape, returns a sanitized `merchant_order_ref`, and never stores
-  credentials.
-- Adapter: charge active DEMO mandate → DEMO checkout → report `APPROVED` to
-  Prava (`backend/payments/checkout_adapter.py`).
-- Unit tests mock Prava. The live sandbox smoke is **not** in normal CI:
+- Checkout is an internal server-side DEMO merchant adapter. The former public
+  credential-submission route has been removed, so browsers cannot submit a
+  token, CVV, expiry, amount, currency, or raw mandate id.
+- Adapter: fresh coverage → charge active DEMO mandate → DEMO checkout → validate
+  the Prava outcome-report response (`backend/payments/checkout_adapter.py`).
+- Unit tests mock Prava and are not transaction proof. The JOINT-3 live sandbox
+  smoke is **not** in normal CI and must not run until both teammates review the
+  offline tests and sanitized logging:
 
 ```bash
 RUN_PRAVA_SMOKE=1 python -m pytest backend/tests/test_prava_demo_smoke.py -q
 ```
 
-Sanitized smoke evidence (when run): [`docs/evidence/venkat3-demo-checkout-proof.json`](docs/evidence/venkat3-demo-checkout-proof.json).
+Historical VENKAT-3 evidence remains at
+[`docs/evidence/venkat3-demo-checkout-proof.json`](docs/evidence/venkat3-demo-checkout-proof.json).
+The route smoke writes `docs/evidence/joint3-covered-payment-proof.json` only
+after a real successful run; absence of that file means JOINT-3 has not yet been
+proved live.
+
+### Covered payment execution (JOINT-3)
+
+`POST /api/payments/execute` has a strict body containing only `domain_id`:
+
+```bash
+curl --fail --request POST http://localhost:8000/api/payments/execute \
+  --header 'Content-Type: application/json' \
+  --data '{"domain_id":1}'
+```
+
+The server reloads the monitored domain and latest final `auto_renew` decision,
+fetches a fresh server-owned DEMO renewal quote, and looks up the domain's
+provider mandate using its server-derived customer id. It re-runs the VIVEK-7
+deterministic policy against one independently complete provider mandate:
+domain, active status, merchant name, canonical HTTPS URL, country, yearly
+frequency, currency, future validity, and exact `Decimal` amount at or below
+the cap must all match. An earlier ranking result alone cannot authorize a
+charge.
+
+Execution is serialized per domain with a PostgreSQL advisory lock in
+production and an equivalent process lock for SQLite tests. Any existing
+authorized, completed, reconciliation-required, or unknown attempt blocks a
+second charge; explicitly failed or declined attempts may be retried. Local
+persisted coverage and the duplicate guard run before provider lookup, and the
+same policy plus provider digest/facts are checked again immediately before the
+authorized attempt is created.
+
+An approved provider mandate is reconciled to the existing `Mandate` table with
+only a one-way provider-id digest and sanitized binding metadata. The raw
+provider mandate id remains ephemeral for the provider call. Post-approval
+reconciliation uses `POST /api/payments/mandate/reconcile` with only `domain_id`;
+it creates no payment attempt. Uncovered requests create no `PaymentAttempt` and
+perform no charge or checkout. Once fresh coverage authorizes a real attempt,
+Aegis stores only the domain and mandate foreign keys, server-derived amount,
+sanitized merchant order reference, and status.
+
+The response remains exactly:
+
+```json
+{
+  "payment_status": "completed",
+  "merchant_order_ref": "DEMO-REN-…",
+  "completed": true
+}
+```
+
+`completed=true` reflects merchant checkout confirmation. Fully successful
+execution also requires Prava's report response to be confirmed. If the merchant
+completed but outcome reporting failed or was not confirmed, Aegis preserves
+`completed=true` but returns and persists
+`payment_status="reconciliation_required"`; it does not present the workflow as
+fully successful. Provider, checkout, and database failures use sanitized
+responses and never return raw diagnostics or credentials.
 
 ## Configuration and database
 
@@ -330,7 +400,7 @@ Sanitized evidence: [`docs/evidence/joint2-commerce-proof.json`](docs/evidence/j
 |---|---|
 | Sandbox health | `ok` at `https://sandbox.api.prava.space/health` |
 | Test API keys | `pk_test_` / `sk_test_` accepted |
-| Team sandbox card + OTP + passkey | Mandate approval completed (Visa last4 `2564`) |
+| Team sandbox card + verification + passkey | Mandate approval completed; card details redacted |
 | Merchant-locked **yearly** mandate | **Active** — cap `$18.00 USD`, scope `listed`, merchant `Aegis Demo Registrar` |
 | Active-mandate lookup | Returned via `GET /v1/mandates?customer_id=…` |
 | Mandate charge | Credentials minted (`token` + `dynamicCvv` + expiry); status `awaiting_result` |
@@ -352,14 +422,16 @@ Dashboard observation matched the API: order **Authorized**, mandate **Active / 
 
 - **Selected path:** self-owned **DEMO** registrar merchant (domain renewal — `$18/year`), clearly marked `# DEMO:` / `// DEMO:` in code and named here.
 - **Why:** no real registrar/hosting/SSL vendor with UCP/guest agent checkout was found; the interim mandate destination `https://example.com` cannot run a third-party checkout.
-- **Product claim:** Aegis keeps **autonomous yearly renewal under a user-approved, merchant-locked Prava mandate**. DEMO checkout accepts a real Prava network token; full product `POST /api/payments/execute` lands in JOINT-3.
-- **DEMO simplifications:** merchant is self-owned (`backend/payments/demo_*`); mandate merchant URL remains `https://example.com`; checkout runs in-process via Aegis routes, not a third-party registrar.
+- **Product claim:** Aegis keeps **autonomous yearly renewal under a user-approved, merchant-locked Prava mandate**. The DEMO merchant adapter consumes ephemeral Prava credentials server-side; `POST /api/payments/execute` is the only product execution route.
+- **DEMO simplifications:** merchant is self-owned (`backend/payments/demo_*`); mandate merchant URL remains `https://example.com`; checkout runs through an internal Aegis adapter, not a third-party registrar.
 
 ## Phase 0 — VENKAT-3 DEMO checkout proof
 
 Sanitized evidence: [`docs/evidence/venkat3-demo-checkout-proof.json`](docs/evidence/venkat3-demo-checkout-proof.json).
 
-Re-run: `RUN_PRAVA_SMOKE=1 python -m pytest backend/tests/test_prava_demo_smoke.py -q`
+This historical evidence predates the covered JOINT-3 route. The current smoke
+command exercises `POST /api/payments/execute` and writes separate JOINT-3
+evidence only after a real success.
 
 | Step | Result |
 |---|---|
@@ -379,5 +451,7 @@ The Aegis idea and public integration research existed before the event. All
 application code in this repository is being written during the hackathon build
 window. Payment claims require real Prava sandbox evidence and a completed
 merchant checkout; no payment outcome is mocked. JOINT-2 proved mandate setup
-and credential minting. VENKAT-3 adds the disclosed DEMO registrar checkout
-path and a CI-excluded sandbox smoke that asserts completed checkout + `APPROVED`.
+and credential minting. VENKAT-3 proved the disclosed DEMO registrar checkout
+path. JOINT-3 adds an offline-tested covered route and a separate CI-excluded
+route-level sandbox smoke; mocked tests are never presented as transaction
+proof.

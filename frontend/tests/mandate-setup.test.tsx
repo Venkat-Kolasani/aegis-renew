@@ -16,7 +16,9 @@ test("renders idle mandate form with DEMO merchant defaults", () => {
   assert.match(markup, /Yearly renewal mandate/);
   assert.match(markup, /Aegis Demo Registrar/);
   assert.match(markup, /https:\/\/example\.com/);
-  assert.match(markup, /yearly \(locked\)/);
+  assert.match(markup, /Fixed DEMO mandate coverage/);
+  assert.match(markup, /yearly/);
+  assert.doesNotMatch(markup, /<input/);
   assert.match(markup, /data-state="idle"/);
   assert.match(markup, /billing\.aegis-demo\.test/);
 });
@@ -37,9 +39,19 @@ test("renders mocked awaiting-approval success path", () => {
   );
   assert.match(markup, /data-state="awaiting_approval"/);
   assert.match(markup, /Approve with your passkey/);
+  assert.match(markup, /I approved it—sync mandate/);
   assert.match(markup, /Reopen approval/);
   assert.match(markup, /Cancel/);
   assert.doesNotMatch(markup, /456789/);
+});
+
+test("renders sanitized active reconciliation guidance", () => {
+  const markup = renderToStaticMarkup(
+    <MandateSetup domains={domains} initialState="active" />,
+  );
+  assert.match(markup, /data-state="active"/);
+  assert.match(markup, /Active mandate coverage synced/);
+  assert.match(markup, /Run ranking again/);
 });
 
 test("renders mocked cancellation state", () => {

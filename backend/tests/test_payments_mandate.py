@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from decimal import Decimal
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -105,6 +106,42 @@ def test_create_mandate_rejects_non_yearly_frequency(
     response = client.post("/api/payments/mandate", json=body)
     assert response.status_code == 400
     assert "yearly" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("merchant_name", "Other Registrar"),
+        ("merchant_url", "https://other.example"),
+        ("merchant_country", "GB"),
+        ("cap_amount", 1.0),
+        ("currency", "EUR"),
+    ],
+)
+def test_create_mandate_rejects_browser_changed_demo_coverage(
+    field: str,
+    value: object,
+    client: TestClient,
+    mandate_db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Locked request fields cannot alter the server-owned DEMO coverage."""
+    domain = mandate_db.query(Domain).one()
+    body = _mandate_body(domain.id)
+    body[field] = value
+    provider = Mock()
+    monkeypatch.setattr(
+        "backend.routes.payments.create_yearly_mandate_session",
+        provider,
+    )
+
+    response = client.post("/api/payments/mandate", json=body)
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "Mandate setup must use the fixed DEMO renewal coverage"
+    }
+    provider.assert_not_called()
 
 
 def test_create_mandate_missing_domain_returns_404(client: TestClient, mandate_db: Session) -> None:

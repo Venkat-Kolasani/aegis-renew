@@ -156,9 +156,8 @@ def create_yearly_mandate_session(
     if response.status_code >= 400:
         message = _error_message(response)
         logger.error(
-            "Prava mandate session failed HTTP %s: %s",
+            "Prava mandate session failed status_code=%s",
             response.status_code,
-            message,
         )
         raise PravaMandateError(message, status_code=response.status_code)
 

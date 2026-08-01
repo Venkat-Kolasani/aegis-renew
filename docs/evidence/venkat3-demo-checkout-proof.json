@@ -6,7 +6,7 @@
     "path": "self_owned_demo_merchant",
     "name": "Aegis Demo Registrar",
     "product": "Domain renewal \u2014 $18/year",
-    "checkout_surface": "POST /api/demo/registrar/checkout (DEMO stand-in)"
+    "checkout_surface": "historical DEMO stand-in; browser credential route removed before JOINT-3"
   },
   "flow": {
     "mandate_charge": "credentials_minted",

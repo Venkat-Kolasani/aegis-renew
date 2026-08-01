@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import DomainList from "@/components/DomainList";
 import AgentDecisionLog from "@/components/AgentDecisionLog";
 import MandateSetup from "@/components/MandateSetup";
+import PaymentExecution from "@/components/PaymentExecution";
 import {
   fetchDomains,
   isValidScanDomain,
@@ -238,6 +239,10 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
 
         <div className="aegis-rise" style={{ animationDelay: "180ms" }}>
           <AgentDecisionLog domains={domainOptions} apiBaseUrl={apiBaseUrl} />
+        </div>
+
+        <div className="aegis-rise" style={{ animationDelay: "220ms" }}>
+          <PaymentExecution domains={domainOptions} apiBaseUrl={apiBaseUrl} />
         </div>
       </div>
     </div>

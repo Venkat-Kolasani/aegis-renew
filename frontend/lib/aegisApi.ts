@@ -167,6 +167,16 @@ export type RankDecision = {
   reason: string;
 };
 
+export type PaymentExecutionResult = {
+  payment_status: string;
+  merchant_order_ref: string | null;
+  completed: boolean;
+};
+
+export type MandateReconciliationResult = {
+  status: "active";
+};
+
 const RANK_TIMEOUT_MS = 90_000;
 
 const RANK_TIMEOUT_MESSAGE = "Ranking timed out. Try again.";
@@ -207,6 +217,23 @@ export function parseRankDecision(value: unknown): RankDecision | null {
     criticality_score: row.criticality_score,
     decision: row.decision,
     reason: row.reason,
+  };
+}
+
+export function parsePaymentExecutionResult(
+  value: unknown,
+): PaymentExecutionResult | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.payment_status !== "string" || row.payment_status.length === 0) {
+    return null;
+  }
+  if (!isNullOrString(row.merchant_order_ref)) return null;
+  if (typeof row.completed !== "boolean") return null;
+  return {
+    payment_status: row.payment_status,
+    merchant_order_ref: row.merchant_order_ref,
+    completed: row.completed,
   };
 }
 
@@ -252,4 +279,64 @@ export async function rankDomains(
     decisions.push(parsed);
   }
   return decisions;
+}
+
+export async function executePayment(
+  domainId: number,
+  apiBaseUrl?: string,
+): Promise<PaymentExecutionResult> {
+  if (!Number.isInteger(domainId) || domainId <= 0) {
+    throw new Error("Select a valid domain for renewal execution.");
+  }
+  const response = await fetch(`${resolveApiBase(apiBaseUrl)}/payments/execute`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    // Security boundary: the browser supplies only the monitored database id.
+    body: JSON.stringify({ domain_id: domainId }),
+    signal: AbortSignal.timeout(RANK_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response));
+  }
+  const payload: unknown = await response.json();
+  const parsed = parsePaymentExecutionResult(payload);
+  if (!parsed) {
+    throw new Error("Payment response does not match the API contract");
+  }
+  return parsed;
+}
+
+export async function reconcileMandate(
+  domainId: number,
+  apiBaseUrl?: string,
+): Promise<MandateReconciliationResult> {
+  if (!Number.isInteger(domainId) || domainId <= 0) {
+    throw new Error("Select a valid domain for mandate reconciliation.");
+  }
+  const response = await fetch(
+    `${resolveApiBase(apiBaseUrl)}/payments/mandate/reconcile`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ domain_id: domainId }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readErrorDetail(response));
+  }
+  const payload: unknown = await response.json();
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    (payload as Record<string, unknown>).status !== "active"
+  ) {
+    throw new Error("Mandate reconciliation response is invalid");
+  }
+  return { status: "active" };
 }

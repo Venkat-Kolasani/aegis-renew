@@ -2,6 +2,8 @@
 
 import { FormEvent, useMemo, useState } from "react";
 
+import { reconcileMandate } from "@/lib/aegisApi";
+
 export type MandateDomainOption = {
   id: number;
   domain: string;
@@ -11,6 +13,8 @@ export type MandateUiState =
   | "idle"
   | "loading"
   | "awaiting_approval"
+  | "syncing"
+  | "active"
   | "cancelled"
   | "error"
   | "expired";
@@ -99,11 +103,6 @@ export default function MandateSetup({
   );
 
   const [domainId, setDomainId] = useState<number | null>(() => initialDomainId(sortedDomains));
-  const [merchantName, setMerchantName] = useState(defaultMerchantName);
-  const [merchantUrl, setMerchantUrl] = useState(defaultMerchantUrl);
-  const [merchantCountry, setMerchantCountry] = useState(defaultMerchantCountry);
-  const [capAmount, setCapAmount] = useState(String(defaultCapAmount));
-  const [currency, setCurrency] = useState(defaultCurrency);
   const [state, setState] = useState<MandateUiState>(
     initialState ?? (sortedDomains.length ? "idle" : "error"),
   );
@@ -135,13 +134,6 @@ export default function MandateSetup({
       return;
     }
 
-    const parsedCap = Number(capAmount);
-    if (!Number.isFinite(parsedCap) || parsedCap <= 0) {
-      setState("error");
-      setErrorMessage("Cap amount must be a positive number.");
-      return;
-    }
-
     try {
       const response = await fetch(`${resolveApiBase(apiBaseUrl)}/payments/mandate`, {
         method: "POST",
@@ -149,11 +141,11 @@ export default function MandateSetup({
         body: JSON.stringify(
           buildMandateRequestBody({
             domainId: selectedDomainId,
-            merchantName,
-            merchantUrl,
-            merchantCountry,
-            capAmount: parsedCap,
-            currency,
+            merchantName: defaultMerchantName,
+            merchantUrl: defaultMerchantUrl,
+            merchantCountry: defaultMerchantCountry,
+            capAmount: defaultCapAmount,
+            currency: defaultCurrency,
           }),
         ),
       });
@@ -197,6 +189,21 @@ export default function MandateSetup({
   function onCancel(): void {
     setState("cancelled");
     setErrorMessage(null);
+  }
+
+  async function onReconcile(): Promise<void> {
+    if (selectedDomainId === null || state === "syncing") return;
+    setState("syncing");
+    setErrorMessage(null);
+    try {
+      await reconcileMandate(selectedDomainId, apiBaseUrl);
+      setState("active");
+    } catch (error) {
+      setState("error");
+      setErrorMessage(
+        error instanceof Error ? error.message : "Mandate reconciliation failed",
+      );
+    }
   }
 
   function onMarkExpired(): void {
@@ -252,68 +259,12 @@ export default function MandateSetup({
           </select>
         </label>
 
-        <label className="space-y-1.5 text-sm text-ink">
-          <span className="font-medium">Merchant name</span>
-          <input
-            className="aegis-input"
-            value={merchantName}
-            onChange={(event) => setMerchantName(event.target.value)}
-            disabled={state === "loading" || state === "awaiting_approval"}
-            required
-          />
-        </label>
-
-        <label className="space-y-1.5 text-sm text-ink">
-          <span className="font-medium">Merchant URL</span>
-          <input
-            className="aegis-input font-mono"
-            type="url"
-            value={merchantUrl}
-            onChange={(event) => setMerchantUrl(event.target.value)}
-            disabled={state === "loading" || state === "awaiting_approval"}
-            required
-          />
-        </label>
-
-        <label className="space-y-1.5 text-sm text-ink">
-          <span className="font-medium">Merchant country</span>
-          <input
-            className="aegis-input font-mono uppercase"
-            value={merchantCountry}
-            maxLength={2}
-            onChange={(event) => setMerchantCountry(event.target.value.toUpperCase())}
-            disabled={state === "loading" || state === "awaiting_approval"}
-            required
-          />
-        </label>
-
-        <label className="space-y-1.5 text-sm text-ink">
-          <span className="font-medium">Cap amount</span>
-          <input
-            className="aegis-input font-mono"
-            inputMode="decimal"
-            value={capAmount}
-            onChange={(event) => setCapAmount(event.target.value)}
-            disabled={state === "loading" || state === "awaiting_approval"}
-            required
-          />
-        </label>
-
-        <label className="space-y-1.5 text-sm text-ink">
-          <span className="font-medium">Currency</span>
-          <input
-            className="aegis-input font-mono uppercase"
-            value={currency}
-            maxLength={3}
-            onChange={(event) => setCurrency(event.target.value.toUpperCase())}
-            disabled={state === "loading" || state === "awaiting_approval"}
-            required
-          />
-        </label>
-
-        <div className="space-y-1.5 text-sm text-ink">
-          <span className="font-medium">Frequency</span>
-          <p className="aegis-input bg-[#f8f9fb] text-ink-muted">yearly (locked)</p>
+        <div className="rounded-md border border-line bg-neutral-soft px-3 py-3 text-sm text-ink-muted sm:col-span-2">
+          <p className="font-medium text-ink">Fixed DEMO mandate coverage</p>
+          <p className="mt-1 font-mono text-xs">
+            {defaultMerchantName} · {defaultMerchantUrl} · {defaultMerchantCountry} · {"$"}
+            {defaultCapAmount.toFixed(2)} {defaultCurrency} · yearly
+          </p>
         </div>
 
         <div className="flex flex-wrap gap-2.5 sm:col-span-2">
@@ -332,6 +283,13 @@ export default function MandateSetup({
 
           {state === "awaiting_approval" ? (
             <>
+              <button
+                type="button"
+                className="aegis-btn aegis-btn-primary"
+                onClick={onReconcile}
+              >
+                I approved it—sync mandate
+              </button>
               <button type="button" className="aegis-btn aegis-btn-secondary" onClick={onCancel}>
                 Cancel
               </button>
@@ -364,6 +322,12 @@ export default function MandateSetup({
         </p>
       ) : null}
 
+      {state === "syncing" ? (
+        <p role="status" className="text-sm text-ink-muted">
+          Verifying the approved mandate with Prava…
+        </p>
+      ) : null}
+
       {state === "awaiting_approval" ? (
         <p
           role="status"
@@ -376,6 +340,15 @@ export default function MandateSetup({
       {state === "cancelled" ? (
         <p role="status" className="text-sm text-ink-muted">
           Mandate approval cancelled. No mandate id or payment credential was stored in the browser.
+        </p>
+      ) : null}
+
+      {state === "active" ? (
+        <p
+          role="status"
+          className="rounded-lg border border-ok/25 bg-ok-soft px-3 py-2 text-sm text-ok"
+        >
+          Active mandate coverage synced. Run ranking again before executing renewal.
         </p>
       ) : null}
 
