@@ -6,16 +6,20 @@ executes a configured renewal only when a user-approved Prava mandate covers it.
 
 ## Backend development
 
-Install dependencies from `backend/requirements.txt`, then run the API:
+Create a Python 3.11+ virtual environment, install the backend dependencies,
+then run the API from the repository root:
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r backend/requirements.txt
 uvicorn backend.main:app --reload
 ```
 
-Run the current backend checks:
+Run the complete backend suite from the repository root:
 
 ```bash
-pytest -q
+python -m pytest backend/tests -q
 ```
 
 The Phase 0 API exposes `GET /health`; business routes are intentionally typed
@@ -38,17 +42,36 @@ live API data is added in the follow-up dashboard slice.
 
 ## Configuration and database
 
-Copy `.env.example` to `.env` and fill local values only. `PRAVA_SECRET_KEY`
-is server-only; never use a public browser environment-variable prefix for it.
+Copy `.env.example` to `.env` and fill local values only. Export
+`DATABASE_URL` into the backend process environment; the SQLAlchemy production
+engine requires PostgreSQL through the psycopg driver. `PRAVA_SECRET_KEY` is
+server-only; never use a public browser environment-variable prefix for it.
 
-Create a local Postgres database and apply the initial schema:
+Create a local Postgres database and apply the approved shared schema:
 
 ```bash
-psql "$DATABASE_URL" -f backend/db/schema.sql
+createdb aegis
+export DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/aegis"
+psql "postgresql://postgres:postgres@localhost:5432/aegis" -f backend/db/schema.sql
 ```
 
+Application persistence uses SQLAlchemy 2.x ORM models and sessions. Tests use
+a fresh temporary SQLite database per test, so they never touch the configured
+Postgres database.
+
 The schema keeps detection results, recommendations, mandate metadata, and
-sanitized payment outcomes. It never stores payment tokens or dynamic CVVs.
+sanitized payment outcomes. Models contain no card information, payment
+credentials, network tokens, dynamic CVVs, or secret fields.
+
+Security note: the shared Phase 0 SQL currently names a required column
+`provider_mandate_id`, which conflicts with the project rule forbidding raw
+Prava mandate identifiers. Until schema ownership is handed over, the ORM maps
+that column to `provider_mandate_id_digest` and rejects non-digest values. The
+shared SQL has not been changed; it should later be renamed explicitly so the
+database-level name also communicates the security boundary. This digest is
+for correlation only and cannot be used to execute a payment; a later payment
+phase must use an explicitly approved provider-side lookup or secret-management
+design without adding a raw identifier to these models.
 
 ## Continuous integration
 
