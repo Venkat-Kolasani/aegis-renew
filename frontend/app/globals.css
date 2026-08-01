@@ -1,26 +1,279 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #f3f5f7;
+  --bg-elevated: #ffffff;
+  --ink: #0c1222;
+  --ink-muted: #5b6577;
+  --ink-faint: #8b93a3;
+  --line: #d8dee8;
+  --line-strong: #b8c0ce;
+  --accent: #0d4f4a;
+  --accent-bright: #1a7a72;
+  --accent-soft: #e8f4f2;
+  --copper: #9a4f2e;
+  --copper-soft: #faf3ee;
+  --danger: #9f1239;
+  --danger-soft: #fff1f2;
+  --warn: #92400e;
+  --warn-soft: #fffbeb;
+  --ok: #166534;
+  --ok-soft: #ecfdf3;
+  --dns: #1e3a5f;
+  --dns-soft: #eef3f8;
+  --shadow-soft: 0 1px 0 rgba(12, 18, 34, 0.04), 0 12px 40px rgba(12, 18, 34, 0.06);
+  --font-sans: var(--font-ibm-plex-sans), "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-source-serif), "Source Serif 4", Georgia, serif;
+  --font-mono: var(--font-ibm-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-copper: var(--copper);
+  --color-copper-soft: var(--copper-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-dns: var(--dns);
+  --color-dns-soft: var(--dns-soft);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    min-height: 100%;
+  }
+
+  body:not(:has(.aegis-console-shell)) {
+    background-image:
+      linear-gradient(90deg, rgba(12, 18, 34, 0.03) 1px, transparent 1px),
+      linear-gradient(rgba(12, 18, 34, 0.03) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: -12px -12px;
+  }
+
+  .aegis-console-shell {
+    background-color: #eceff3;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 100% 0%, rgba(13, 79, 74, 0.06), transparent 50%),
+      linear-gradient(180deg, #f4f6f8 0%, #eceff3 100%);
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 22%, white);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  .aegis-panel {
+    background: var(--bg-elevated);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .aegis-input {
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid var(--line-strong);
+    background: #fff;
+    padding: 0.625rem 0.75rem;
+    color: var(--ink);
+    font-size: 0.875rem;
+    outline: none;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  .aegis-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  .aegis-input:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    background: #f8f9fb;
+  }
+
+  .aegis-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.5rem;
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 550;
+    letter-spacing: 0.01em;
+    transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease,
+      transform 120ms ease, opacity 120ms ease;
+  }
+
+  .aegis-btn:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  .aegis-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .aegis-btn-primary {
+    background: var(--ink);
+    color: #f8fafc;
+  }
+
+  .aegis-btn-primary:hover:not(:disabled) {
+    background: #1a2438;
+  }
+
+  .aegis-btn-secondary {
+    background: #fff;
+    color: var(--ink);
+    border: 1px solid var(--line-strong);
+  }
+
+  .aegis-btn-secondary:hover:not(:disabled) {
+    border-color: var(--ink-muted);
+    background: #f8fafc;
+  }
+
+  .aegis-btn-accent {
+    background: var(--accent);
+    color: #f4fffd;
+  }
+
+  .aegis-btn-accent:hover:not(:disabled) {
+    background: #0a403c;
+  }
+
+  .aegis-btn-ghost {
+    background: transparent;
+    color: var(--ink-muted);
+    border: 1px solid transparent;
+  }
+
+  .aegis-btn-ghost:hover:not(:disabled) {
+    color: var(--ink);
+    background: rgba(12, 18, 34, 0.04);
+  }
+
+  .aegis-btn-invert {
+    background: #f4f7fa;
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .aegis-btn-invert:hover:not(:disabled) {
+    background: #ffffff;
+  }
+
+  .aegis-hero-glow {
+    background:
+      radial-gradient(ellipse 70% 60% at 20% 0%, rgba(13, 79, 74, 0.12), transparent 55%),
+      radial-gradient(ellipse 50% 40% at 90% 20%, rgba(154, 79, 46, 0.08), transparent 50%);
+  }
+
+  .aegis-telemetry {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+    background: var(--bg-elevated);
+    overflow: hidden;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .aegis-telemetry-item {
+    flex: 1 1 8rem;
+    padding: 1rem 1.25rem;
+    border-right: 1px solid var(--line);
+    min-width: 7.5rem;
+  }
+
+  .aegis-telemetry-item:last-child {
+    border-right: none;
+  }
+
+  @media (max-width: 640px) {
+    .aegis-telemetry-item {
+      border-right: none;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .aegis-telemetry-item:last-child {
+      border-bottom: none;
+    }
+  }
+
+  .aegis-fade-in {
+    animation: none;
+  }
+
+  .aegis-rise {
+    animation: none;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .aegis-fade-in {
+      animation: aegis-fade-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    .aegis-rise {
+      animation: aegis-rise 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .aegis-fade-in,
+    .aegis-rise {
+      animation: none !important;
+    }
+  }
+}
+
+@keyframes aegis-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes aegis-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

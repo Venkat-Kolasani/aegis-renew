@@ -36,8 +36,8 @@ function getExpiryStatus(
     return {
       label: "Expiry unknown",
       tone: "yellow",
-      className: "bg-amber-400/15 text-amber-200 ring-1 ring-inset ring-amber-300/30",
-      dotClassName: "bg-amber-300",
+      className: "bg-warn-soft text-warn ring-1 ring-inset ring-warn/20",
+      dotClassName: "bg-warn",
     };
   }
 
@@ -45,8 +45,8 @@ function getExpiryStatus(
     return {
       label: "Expired",
       tone: "red",
-      className: "bg-rose-400/15 text-rose-200 ring-1 ring-inset ring-rose-300/30",
-      dotClassName: "bg-rose-300",
+      className: "bg-danger-soft text-danger ring-1 ring-inset ring-danger/20",
+      dotClassName: "bg-danger",
     };
   }
 
@@ -54,8 +54,8 @@ function getExpiryStatus(
     return {
       label: "Urgent",
       tone: "red",
-      className: "bg-rose-400/15 text-rose-200 ring-1 ring-inset ring-rose-300/30",
-      dotClassName: "bg-rose-300",
+      className: "bg-danger-soft text-danger ring-1 ring-inset ring-danger/20",
+      dotClassName: "bg-danger",
     };
   }
 
@@ -63,16 +63,16 @@ function getExpiryStatus(
     return {
       label: "Review soon",
       tone: "yellow",
-      className: "bg-amber-400/15 text-amber-200 ring-1 ring-inset ring-amber-300/30",
-      dotClassName: "bg-amber-300",
+      className: "bg-warn-soft text-warn ring-1 ring-inset ring-warn/20",
+      dotClassName: "bg-warn",
     };
   }
 
   return {
     label: "Healthy",
     tone: "green",
-    className: "bg-emerald-400/15 text-emerald-200 ring-1 ring-inset ring-emerald-300/30",
-    dotClassName: "bg-emerald-300",
+    className: "bg-ok-soft text-ok ring-1 ring-inset ring-ok/20",
+    dotClassName: "bg-ok",
   };
 }
 
@@ -85,25 +85,25 @@ export default function RiskBadge({
   const expiryStatus = getExpiryStatus(expiryDate, certExpiryDate, today);
 
   return (
-    <div className="flex flex-wrap gap-2" aria-label="Domain risk signals">
+    <div className="flex flex-wrap gap-1.5" aria-label="Domain risk signals">
       <span
         aria-label={`Expiry risk: ${expiryStatus.label}`}
         data-risk={expiryStatus.tone}
-        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${expiryStatus.className}`}
+        className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold tracking-wide ${expiryStatus.className}`}
       >
-        <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${expiryStatus.dotClassName}`} />
+        <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-sm ${expiryStatus.dotClassName}`} />
         {expiryStatus.label}
       </span>
       {dnsRisk ? (
         <span
           aria-label="DNS takeover risk"
-          className="inline-flex items-center gap-1.5 rounded-full bg-violet-400/15 px-2.5 py-1 text-xs font-medium text-violet-200 ring-1 ring-inset ring-violet-300/30"
+          className="inline-flex items-center gap-1.5 rounded-md bg-dns-soft px-2 py-0.5 text-[11px] font-semibold tracking-wide text-dns ring-1 ring-inset ring-dns/15"
         >
-          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-violet-300" />
+          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-sm bg-dns" />
           DNS takeover risk
         </span>
       ) : (
-        <span className="inline-flex items-center rounded-full bg-slate-800/80 px-2.5 py-1 text-xs font-medium text-slate-400 ring-1 ring-inset ring-slate-700">
+        <span className="inline-flex items-center rounded-md bg-[#f1f4f8] px-2 py-0.5 text-[11px] font-medium tracking-wide text-ink-faint ring-1 ring-inset ring-line">
           DNS clear
         </span>
       )}
