@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   isValidScanDomain,
   parseDomainSummary,
+  parseRankDecision,
   parseScanResult,
   resolveApiBase,
   type DomainSummary,
@@ -66,6 +67,30 @@ test("parseScanResult accepts dns_risk_detail including null", () => {
   assert.equal(parsed?.dns_risk, true);
   assert.equal(parsed?.dns_risk_detail, "high confidence dangling CNAME");
   assert.equal(parsed?.expiry_date, null);
+});
+
+test("parseRankDecision accepts contract decisions and rejects invalid rows", () => {
+  const parsed = parseRankDecision({
+    domain_id: 7,
+    criticality_score: 88,
+    decision: "auto_renew",
+    reason: "Expiry is near.",
+  });
+  assert.deepEqual(parsed, {
+    domain_id: 7,
+    criticality_score: 88,
+    decision: "auto_renew",
+    reason: "Expiry is near.",
+  });
+  assert.equal(
+    parseRankDecision({
+      domain_id: 7,
+      criticality_score: 101,
+      decision: "auto_renew",
+      reason: "bad",
+    }),
+    null,
+  );
 });
 
 test("summarizeDomains counts urgency and DNS risk", () => {

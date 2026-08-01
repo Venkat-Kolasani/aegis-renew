@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import DomainList from "@/components/DomainList";
+import AgentDecisionLog from "@/components/AgentDecisionLog";
 import MandateSetup from "@/components/MandateSetup";
 import {
   fetchDomains,
@@ -233,6 +234,10 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
             </div>
             <MandateSetup domains={listForMandate} apiBaseUrl={apiBaseUrl} />
           </aside>
+        </div>
+
+        <div className="aegis-rise" style={{ animationDelay: "180ms" }}>
+          <AgentDecisionLog domains={listForMandate} apiBaseUrl={apiBaseUrl} />
         </div>
       </div>
     </div>
