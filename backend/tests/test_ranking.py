@@ -5,14 +5,16 @@ from __future__ import annotations
 import ast
 import json
 import logging
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Self
 from unittest.mock import Mock
 
 import httpx
 import pytest
 from openai import APITimeoutError, AuthenticationError, RateLimitError
+from openai.lib._parsing._responses import type_to_response_format_param
 from pydantic import ValidationError
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
@@ -35,11 +37,11 @@ from backend.db.models import AgentDecision, Domain
 class _FakeResponses:
     """Return queued parsed responses or raise queued SDK exceptions."""
 
-    def __init__(self, outcomes: list[object]) -> None:
+    def __init__(self: Self, outcomes: list[object]) -> None:
         self._outcomes = list(outcomes)
         self.calls: list[dict[str, object]] = []
 
-    def parse(self, **kwargs: object) -> SimpleNamespace:
+    def parse(self: Self, **kwargs: object) -> SimpleNamespace:
         self.calls.append(kwargs)
         outcome = self._outcomes.pop(0)
         if isinstance(outcome, BaseException):
@@ -50,7 +52,7 @@ class _FakeResponses:
 class _FakeClient:
     """Minimal OpenAI client surface used by the ranking module."""
 
-    def __init__(self, outcomes: list[object]) -> None:
+    def __init__(self: Self, outcomes: list[object]) -> None:
         self.responses = _FakeResponses(outcomes)
 
 
@@ -88,7 +90,7 @@ def _add_domain(
     dns_detail: str | None = None,
 ) -> Domain:
     """Persist one domain with expiry offsets relative to the test date."""
-    today = date.today()
+    today = datetime.now(UTC).date()
     now = datetime.now(UTC)
     domain = Domain(
         domain=name,
@@ -129,6 +131,34 @@ def _response(*results: DecisionResult) -> RankingResponse:
     return RankingResponse(results=list(results))
 
 
+def _assert_model_result(
+    result: DecisionResult,
+    *,
+    domain_id: int,
+    score: int,
+    decision: str,
+) -> None:
+    """Assert stable model-result fields without locking reason wording."""
+    assert result.domain_id == domain_id
+    assert result.criticality_score == score
+    assert result.decision == decision
+    assert isinstance(result.reason, str)
+    assert 0 < len(result.reason) <= ranking.MAX_REASON_LENGTH
+
+
+def _schema_keys(value: object) -> set[str]:
+    """Collect every mapping key from a nested generated JSON schema."""
+    keys: set[str] = set()
+    if isinstance(value, dict):
+        keys.update(value)
+        for item in value.values():
+            keys.update(_schema_keys(item))
+    elif isinstance(value, list):
+        for item in value:
+            keys.update(_schema_keys(item))
+    return keys
+
+
 def _prompt_domains(client: _FakeClient) -> list[dict[str, object]]:
     """Decode the deterministic input payload captured by the fake client."""
     payload = client.responses.calls[-1]["input"]
@@ -136,6 +166,34 @@ def _prompt_domains(client: _FakeClient) -> list[dict[str, object]]:
     parsed = json.loads(payload)
     assert isinstance(parsed, dict)
     return parsed["domains"]
+
+
+@pytest.mark.parametrize(
+    ("value", "today", "expected"),
+    [
+        (
+            datetime(
+                2026,
+                1,
+                2,
+                1,
+                tzinfo=timezone(timedelta(hours=5, minutes=30)),
+            ),
+            date(2026, 1, 1),
+            0,
+        ),
+        (date(2026, 1, 3), date(2026, 1, 1), 2),
+        (datetime(2026, 1, 2, 23, 30), date(2026, 1, 1), 1),
+        (None, date(2026, 1, 1), None),
+    ],
+)
+def test_days_until_uses_utc_for_aware_datetimes(
+    value: date | datetime | None,
+    today: date,
+    expected: int | None,
+) -> None:
+    """Use UTC for aware datetimes and calendar dates for naive values."""
+    assert ranking._days_until(value, today) == expected
 
 
 @pytest.mark.parametrize(
@@ -183,7 +241,15 @@ def test_ranking_supplies_each_required_signal(
     )
     client = _install_client(monkeypatch, [_response(result)])
 
-    assert rank_domains([domain.id]) == [result]
+    results = rank_domains([domain.id])
+
+    assert len(results) == 1
+    _assert_model_result(
+        results[0],
+        domain_id=domain.id,
+        score=score,
+        decision=decision,
+    )
     assert _prompt_domains(client)[0][fact_name] == fact_value
 
 
@@ -250,6 +316,44 @@ def test_invalid_input_is_rejected(domain_ids: object) -> None:
     assert caught.value.kind is RankingErrorKind.INVALID_INPUT
 
 
+def test_duplicate_heavy_input_over_item_limit_is_rejected_before_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject an oversized caller list before database or provider access."""
+    database = Mock(side_effect=AssertionError("database should not be read"))
+    provider = Mock(side_effect=AssertionError("provider should not be called"))
+    monkeypatch.setattr(ranking, "get_session_factory", database)
+    monkeypatch.setattr(ranking, "_create_openai_client", provider)
+
+    with pytest.raises(RankingError) as caught:
+        rank_domains([1] * (ranking.MAX_REQUEST_ITEMS + 1))
+
+    assert caught.value.kind is RankingErrorKind.INVALID_INPUT
+    database.assert_not_called()
+    provider.assert_not_called()
+
+
+def test_exact_request_item_boundary_accepts_ordered_duplicates(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    """Accept the total-item boundary while deduplicating the model batch."""
+    domain = _add_domain(db_session)
+    client = _install_client(monkeypatch, [_response(_decision(domain.id))])
+    domain_ids = [domain.id] * ranking.MAX_REQUEST_ITEMS
+
+    results = rank_domains(domain_ids)
+
+    assert [result.domain_id for result in results] == domain_ids
+    assert len(client.responses.calls) == 1
+    assert len(_prompt_domains(client)) == 1
+    _assert_model_result(
+        results[-1],
+        domain_id=domain.id,
+        score=50,
+        decision="flag_for_review",
+    )
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -294,6 +398,46 @@ def test_invalid_input_is_rejected(domain_ids: object) -> None:
                 }
             ]
         },
+        {
+            "results": [
+                {
+                    "domain_id": 0,
+                    "criticality_score": 90,
+                    "decision": "auto_renew",
+                    "reason": "Urgent.",
+                }
+            ]
+        },
+        {
+            "results": [
+                {
+                    "domain_id": 1,
+                    "criticality_score": -1,
+                    "decision": "auto_renew",
+                    "reason": "Urgent.",
+                }
+            ]
+        },
+        {
+            "results": [
+                {
+                    "domain_id": 1,
+                    "criticality_score": 90,
+                    "decision": "auto_renew",
+                    "reason": "\n\t",
+                }
+            ]
+        },
+        {
+            "results": [
+                {
+                    "domain_id": 1,
+                    "criticality_score": 90,
+                    "decision": "auto_renew",
+                    "reason": "x" * (ranking.MAX_REASON_LENGTH + 1),
+                }
+            ]
+        },
     ],
 )
 def test_schema_violations_fall_back_to_manual_review(
@@ -311,8 +455,28 @@ def test_schema_violations_fall_back_to_manual_review(
     assert len(client.responses.calls) == 1
 
 
-def test_decision_contract_is_strict_and_bounded() -> None:
-    """Reject extra fields, invalid scores, invalid enums, and empty reasons."""
+@pytest.mark.parametrize(
+    "result",
+    [
+        _decision(0),
+        _decision(1, score=-1),
+        _decision(1, score=101),
+        _decision(1, reason="\n\t"),
+        _decision(1, reason="x" * (ranking.MAX_REASON_LENGTH + 1)),
+    ],
+)
+def test_post_parse_bounds_raise_typed_invalid_output(
+    result: DecisionResult,
+) -> None:
+    """Classify every post-parse business-bound violation as invalid output."""
+    with pytest.raises(RankingError) as caught:
+        ranking._validate_result_ids(_response(result), [1])
+
+    assert caught.value.kind is RankingErrorKind.INVALID_OUTPUT
+
+
+def test_decision_transport_contract_is_strict() -> None:
+    """Reject extra fields, coerced values, and invalid decision enums."""
     with pytest.raises(ValidationError):
         DecisionResult.model_validate(
             {
@@ -324,14 +488,19 @@ def test_decision_contract_is_strict_and_bounded() -> None:
             }
         )
     with pytest.raises(ValidationError):
-        _decision(1, score=-1)
+        DecisionResult.model_validate(
+            {
+                "domain_id": 1,
+                "criticality_score": "10",
+                "decision": "ignore",
+                "reason": "Healthy.",
+            }
+        )
     with pytest.raises(ValidationError):
         _decision(1, decision="invalid")
-    with pytest.raises(ValidationError):
-        _decision(1, reason="\n\t")
 
 
-@pytest.mark.parametrize("shape", ["duplicate", "missing", "extra"])
+@pytest.mark.parametrize("shape", ["empty", "duplicate", "missing", "extra"])
 def test_result_id_mismatches_fall_back_for_every_loaded_domain(
     monkeypatch: pytest.MonkeyPatch,
     db_session: Session,
@@ -340,7 +509,9 @@ def test_result_id_mismatches_fall_back_for_every_loaded_domain(
     """Reject duplicate, missing, or unexpected result IDs as one bad batch."""
     first = _add_domain(db_session, name="one.example.com")
     second = _add_domain(db_session, name="two.example.com")
-    if shape == "duplicate":
+    if shape == "empty":
+        parsed = _response()
+    elif shape == "duplicate":
         parsed = _response(_decision(first.id), _decision(first.id))
     elif shape == "missing":
         parsed = _response(_decision(first.id))
@@ -357,6 +528,25 @@ def test_result_id_mismatches_fall_back_for_every_loaded_domain(
     assert [item.domain_id for item in results] == [first.id, second.id]
     assert {item.decision for item in results} == {"flag_for_review"}
     assert {item.criticality_score for item in results} == {ranking.FALLBACK_SCORE}
+
+
+def test_model_result_count_over_limit_falls_back(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    """Reject a structured response exceeding the model-result ceiling."""
+    domain = _add_domain(db_session)
+    parsed = _response(
+        *(
+            _decision(domain.id)
+            for _ in range(ranking.MAX_DOMAINS + 1)
+        )
+    )
+    _install_client(monkeypatch, [parsed])
+
+    result = rank_domains([domain.id])[0]
+
+    assert result.decision == "flag_for_review"
+    assert result.criticality_score == ranking.FALLBACK_SCORE
 
 
 def test_refusal_or_missing_parsed_output_falls_back(
@@ -383,7 +573,15 @@ def test_timeout_is_retried_then_succeeds(
     expected = _decision(domain.id, score=88, decision="auto_renew")
     client = _install_client(monkeypatch, [timeout, _response(expected)])
 
-    assert rank_domains([domain.id]) == [expected]
+    results = rank_domains([domain.id])
+
+    assert len(results) == 1
+    _assert_model_result(
+        results[0],
+        domain_id=domain.id,
+        score=88,
+        decision="auto_renew",
+    )
     assert len(client.responses.calls) == 2
     assert isolate_ranking.call_count == 1
 
@@ -404,7 +602,15 @@ def test_rate_limit_is_retried_then_succeeds(
     expected = _decision(domain.id)
     client = _install_client(monkeypatch, [limited, _response(expected)])
 
-    assert rank_domains([domain.id]) == [expected]
+    results = rank_domains([domain.id])
+
+    assert len(results) == 1
+    _assert_model_result(
+        results[0],
+        domain_id=domain.id,
+        score=50,
+        decision="flag_for_review",
+    )
     assert len(client.responses.calls) == 2
     assert isolate_ranking.call_count == 1
 
@@ -471,8 +677,31 @@ def test_missing_database_id_gets_fallback_without_entering_model_batch(
 
     assert [item.domain_id for item in results] == [999_999, domain.id]
     assert results[0].decision == "flag_for_review"
-    assert results[1] == expected
+    _assert_model_result(
+        results[1],
+        domain_id=domain.id,
+        score=12,
+        decision="ignore",
+    )
     assert [item["domain_id"] for item in _prompt_domains(client)] == [domain.id]
+
+
+def test_model_reason_is_normalized_after_structured_parse(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    """Normalize printable model reasons after the SDK returns typed output."""
+    domain = _add_domain(db_session)
+    parsed = _response(
+        _decision(
+            domain.id,
+            reason="  Observed facts\nrequire\tmanual review.  ",
+        )
+    )
+    _install_client(monkeypatch, [parsed])
+
+    result = rank_domains([domain.id])[0]
+
+    assert result.reason == "Observed facts require manual review."
 
 
 def test_database_failure_returns_fallback_without_exception_text(
@@ -537,6 +766,46 @@ def test_only_allowlisted_facts_and_two_recent_decisions_are_sent(
     assert all(
         len(item["reason"]) <= ranking.MAX_HISTORY_REASON
         for item in fact["recent_decisions"]
+    )
+
+
+def test_history_with_equal_timestamps_uses_descending_id_tiebreaker(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    """Order equal-time history deterministically by newest decision ID."""
+    domain = _add_domain(db_session)
+    created_at = datetime.now(UTC)
+    lower_id = AgentDecision(
+        domain_id=domain.id,
+        criticality_score=20,
+        decision="ignore",
+        reason="Lower decision ID.",
+        created_at=created_at,
+    )
+    higher_id = AgentDecision(
+        domain_id=domain.id,
+        criticality_score=80,
+        decision="flag_for_review",
+        reason="Higher decision ID.",
+        created_at=created_at,
+    )
+    db_session.add(lower_id)
+    db_session.flush()
+    db_session.add(higher_id)
+    db_session.commit()
+    assert higher_id.id > lower_id.id
+    client = _install_client(monkeypatch, [_response(_decision(domain.id))])
+
+    rank_domains([domain.id])
+
+    history = _prompt_domains(client)[0]["recent_decisions"]
+    assert [item["reason"] for item in history] == [
+        "Higher decision ID.",
+        "Lower decision ID.",
+    ]
+    assert all(
+        set(item) == {"score", "decision", "reason", "created_at"}
+        for item in history
     )
 
 
@@ -629,8 +898,66 @@ def test_request_uses_locked_model_schema_and_output_bounds(
     call = client.responses.calls[0]
     assert call["model"] == "gpt-4o-mini"
     assert call["text_format"] is RankingResponse
-    assert call["max_output_tokens"] == ranking.MAX_OUTPUT_TOKENS
+    assert call["max_output_tokens"] == ranking._output_token_budget(1)
     assert call["store"] is False
+
+
+def test_full_batch_receives_sufficient_derived_output_budget(
+    monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    """Pass approximately 4K output tokens for a full 20-result batch."""
+    domains = [
+        _add_domain(db_session, name=f"batch-{index}.example.com")
+        for index in range(ranking.MAX_DOMAINS)
+    ]
+    parsed = _response(
+        *(
+            _decision(domain.id, score=index, decision="ignore")
+            for index, domain in enumerate(domains)
+        )
+    )
+    client = _install_client(monkeypatch, [parsed])
+
+    results = rank_domains([domain.id for domain in domains])
+
+    assert len(results) == ranking.MAX_DOMAINS
+    budget = client.responses.calls[0]["max_output_tokens"]
+    assert budget == ranking._output_token_budget(ranking.MAX_DOMAINS)
+    assert 4_000 <= budget <= 4_096
+
+
+def test_output_token_budget_scales_and_never_exceeds_ceiling() -> None:
+    """Scale small batches proportionally under the configured hard cap."""
+    one_result = ranking._output_token_budget(1)
+    full_batch = ranking._output_token_budget(ranking.MAX_DOMAINS)
+
+    assert one_result < full_batch
+    assert full_batch == ranking.MAX_OUTPUT_TOKEN_CEILING
+    assert (
+        ranking._output_token_budget(ranking.MAX_REQUEST_ITEMS * 10)
+        == ranking.MAX_OUTPUT_TOKEN_CEILING
+    )
+
+
+def test_openai_generated_schema_omits_unsupported_constraint_keywords() -> None:
+    """Inspect the real SDK strict-schema conversion used by responses.parse."""
+    response_format = type_to_response_format_param(RankingResponse)
+    assert isinstance(response_format, dict)
+    json_schema = response_format["json_schema"]
+    assert json_schema["strict"] is True
+    schema = json_schema["schema"]
+    unsupported = {
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "minLength",
+        "maxLength",
+        "minItems",
+        "maxItems",
+    }
+
+    assert _schema_keys(schema).isdisjoint(unsupported)
 
 
 def test_sdk_client_disables_internal_retries_and_sets_timeout(

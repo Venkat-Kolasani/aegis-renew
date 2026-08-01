@@ -8,7 +8,7 @@ import random
 import re
 import time
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Literal, Self
 
@@ -20,7 +20,7 @@ from openai import (
     OpenAIError,
     RateLimitError,
 )
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -32,13 +32,16 @@ logger = logging.getLogger(__name__)
 
 MODEL = "gpt-4o-mini"
 REQUEST_TIMEOUT_SECONDS = 15.0
-MAX_OUTPUT_TOKENS = 2_000
 MAX_ATTEMPTS = 3
 MAX_DOMAINS = 20
+MAX_REQUEST_ITEMS = MAX_DOMAINS * 5
 MAX_HISTORY_PER_DOMAIN = 2
 MAX_SOURCE_DETAIL = 180
 MAX_HISTORY_REASON = 160
 MAX_REASON_LENGTH = 280
+OUTPUT_TOKEN_OVERHEAD = 256
+OUTPUT_TOKENS_PER_RESULT = 192
+MAX_OUTPUT_TOKEN_CEILING = 4_096
 FALLBACK_SCORE = 50
 
 _SYSTEM_INSTRUCTIONS = """Rank each supplied domain for domain-renewal urgency.
@@ -58,24 +61,10 @@ class DecisionResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
-    domain_id: int = Field(gt=0)
-    criticality_score: int = Field(ge=0, le=100)
+    domain_id: int
+    criticality_score: int
     decision: Literal["auto_renew", "flag_for_review", "ignore"]
-    reason: str = Field(min_length=1, max_length=MAX_REASON_LENGTH)
-
-    @field_validator("reason")
-    @classmethod
-    def sanitize_reason(cls: type[Self], value: str) -> str:
-        """Require a printable, concise human-readable explanation."""
-        printable = "".join(
-            character if character.isprintable() else " " for character in value
-        )
-        normalized = re.sub(r"\s+", " ", printable).strip()
-        if not normalized:
-            raise ValueError("Reason must contain human-readable text")
-        if len(normalized) > MAX_REASON_LENGTH:
-            raise ValueError("Reason exceeds the safe maximum length")
-        return normalized
+    reason: str
 
 
 class RankingResponse(BaseModel):
@@ -83,7 +72,7 @@ class RankingResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
-    results: list[DecisionResult] = Field(max_length=MAX_DOMAINS)
+    results: list[DecisionResult]
 
 
 class RankingErrorKind(StrEnum):
@@ -98,7 +87,11 @@ class RankingErrorKind(StrEnum):
 class RankingError(RuntimeError):
     """A sanitized internal ranking failure without provider diagnostics."""
 
-    def __init__(self, kind: RankingErrorKind, message: str) -> None:
+    def __init__(
+        self: Self,
+        kind: RankingErrorKind,
+        message: str,
+    ) -> None:
         super().__init__(message)
         self.kind = kind
 
@@ -141,11 +134,30 @@ def _safe_text(value: str | None, limit: int) -> str | None:
     return normalized[:limit] or None
 
 
+def _normalize_model_reason(value: str) -> str:
+    """Normalize one model reason and reject unsafe output bounds."""
+    printable = "".join(
+        character if character.isprintable() else " " for character in value
+    )
+    normalized = re.sub(r"\s+", " ", printable).strip()
+    if not normalized or len(normalized) > MAX_REASON_LENGTH:
+        raise RankingError(
+            RankingErrorKind.INVALID_OUTPUT,
+            "Structured ranking reason was invalid",
+        )
+    return normalized
+
+
 def _days_until(value: date | datetime | None, today: date) -> int | None:
     """Return whole calendar days from today to one observed expiry."""
     if value is None:
         return None
-    observed_date = value.date() if isinstance(value, datetime) else value
+    if isinstance(value, datetime):
+        observed_date = (
+            value.astimezone(UTC).date() if value.tzinfo is not None else value.date()
+        )
+    else:
+        observed_date = value
     return (observed_date - today).days
 
 
@@ -155,6 +167,7 @@ def _load_history(
     """Load at most the configured number of recent facts per domain."""
     ranked_history = (
         select(
+            AgentDecision.id.label("decision_id"),
             AgentDecision.domain_id,
             AgentDecision.criticality_score,
             AgentDecision.decision,
@@ -185,6 +198,7 @@ def _load_history(
         .order_by(
             ranked_history.c.domain_id,
             ranked_history.c.created_at.desc(),
+            ranked_history.c.decision_id.desc(),
         )
     )
     history: dict[int, list[_HistoricalDecisionFact]] = {}
@@ -214,7 +228,7 @@ def _load_domain_facts(
     ).where(Domain.id.in_(domain_ids))
     rows = session.execute(statement).all()
     history = _load_history(session, domain_ids)
-    today = date.today()
+    today = datetime.now(UTC).date()
     facts_by_id = {
         row.id: _DomainRankingFact(
             domain_id=row.id,
@@ -280,6 +294,15 @@ def _prompt_payload(facts: Sequence[_DomainRankingFact]) -> str:
     return json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
 
 
+def _output_token_budget(result_count: int) -> int:
+    """Return a proportional structured-output budget under a hard ceiling."""
+    estimated = OUTPUT_TOKEN_OVERHEAD + OUTPUT_TOKENS_PER_RESULT * max(
+        result_count,
+        0,
+    )
+    return min(estimated, MAX_OUTPUT_TOKEN_CEILING)
+
+
 def _call_structured_output(
     client: OpenAI, facts: Sequence[_DomainRankingFact]
 ) -> RankingResponse:
@@ -291,7 +314,7 @@ def _call_structured_output(
                 instructions=_SYSTEM_INSTRUCTIONS,
                 input=_prompt_payload(facts),
                 text_format=RankingResponse,
-                max_output_tokens=MAX_OUTPUT_TOKENS,
+                max_output_tokens=_output_token_budget(len(facts)),
                 store=False,
             )
             return _parsed_response(response.output_parsed)
@@ -334,13 +357,35 @@ def _validate_result_ids(
     response: RankingResponse, expected_ids: Sequence[int]
 ) -> dict[int, DecisionResult]:
     """Require exactly one structured result for each loaded domain ID."""
-    actual_ids = [result.domain_id for result in response.results]
+    if expected_ids and not response.results:
+        raise RankingError(RankingErrorKind.INVALID_OUTPUT, "Results were empty")
+    if len(response.results) > MAX_DOMAINS:
+        raise RankingError(RankingErrorKind.INVALID_OUTPUT, "Too many results")
+    normalized = [_validate_decision_result(result) for result in response.results]
+    actual_ids = [result.domain_id for result in normalized]
     expected = set(expected_ids)
     if len(actual_ids) != len(set(actual_ids)):
         raise RankingError(RankingErrorKind.INVALID_OUTPUT, "Duplicate result IDs")
     if len(actual_ids) != len(expected) or set(actual_ids) != expected:
         raise RankingError(RankingErrorKind.INVALID_OUTPUT, "Result IDs did not match")
-    return {result.domain_id: result for result in response.results}
+    return {result.domain_id: result for result in normalized}
+
+
+def _validate_decision_result(result: DecisionResult) -> DecisionResult:
+    """Validate business bounds and return an immutable normalized result."""
+    if type(result.domain_id) is not int or result.domain_id <= 0:
+        raise RankingError(RankingErrorKind.INVALID_OUTPUT, "Invalid domain ID")
+    if (
+        type(result.criticality_score) is not int
+        or not 0 <= result.criticality_score <= 100
+    ):
+        raise RankingError(RankingErrorKind.INVALID_OUTPUT, "Invalid score")
+    return DecisionResult(
+        domain_id=result.domain_id,
+        criticality_score=result.criticality_score,
+        decision=result.decision,
+        reason=_normalize_model_reason(result.reason),
+    )
 
 
 def _fallback_result(domain_id: int, reason: str) -> DecisionResult:
@@ -392,7 +437,17 @@ def _rank_loaded_facts(
 
 def _validate_input(domain_ids: list[int]) -> list[int]:
     """Validate positive integer IDs and return their stable unique order."""
-    if not isinstance(domain_ids, list) or any(
+    if not isinstance(domain_ids, list):
+        raise RankingError(
+            RankingErrorKind.INVALID_INPUT,
+            "domain_ids must be a list",
+        )
+    if len(domain_ids) > MAX_REQUEST_ITEMS:
+        raise RankingError(
+            RankingErrorKind.INVALID_INPUT,
+            "domain_ids exceeds the request item limit",
+        )
+    if any(
         not isinstance(domain_id, int)
         or isinstance(domain_id, bool)
         or domain_id <= 0
