@@ -47,6 +47,12 @@ psql "$DATABASE_URL" -f backend/db/schema.sql
 The schema keeps detection results, recommendations, mandate metadata, and
 sanitized payment outcomes. It never stores payment tokens or dynamic CVVs.
 
+## Continuous integration
+
+Every push and pull request runs backend `pytest`, frontend lint, and a frontend
+production build through GitHub Actions. Run the same commands locally before
+pushing a build slice.
+
 ## Build disclosure
 
 The Aegis idea and public integration research existed before the event. All
