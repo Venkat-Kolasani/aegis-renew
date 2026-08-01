@@ -1,0 +1,1 @@
+"""Aegis FastAPI backend package."""
