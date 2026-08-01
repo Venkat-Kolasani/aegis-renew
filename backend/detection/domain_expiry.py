@@ -62,8 +62,18 @@ def _invalid_domain(domain: object, message: str) -> DomainLookupError:
     )
 
 
-def _normalize_domain(domain: str) -> str:
-    """Normalize a registrable domain to lowercase IDNA ASCII."""
+def normalize_domain(domain: str) -> str:
+    """Validate and normalize a registrable domain to lowercase IDNA ASCII.
+
+    Args:
+        domain: A bare domain name, optionally Unicode or ending in a root dot.
+
+    Returns:
+        The normalized ASCII hostname suitable for external lookups.
+
+    Raises:
+        DomainLookupError: If the value is not a valid bare domain name.
+    """
     if not isinstance(domain, str):
         raise _invalid_domain(domain, "Domain must be a string")
 
@@ -273,7 +283,7 @@ def get_domain_expiry(domain: str) -> DomainExpiryResult:
         DomainLookupError: If input is invalid, the domain is absent, the RDAP
             provider is unavailable, or the response cannot be safely parsed.
     """
-    normalized_domain = _normalize_domain(domain)
+    normalized_domain = normalize_domain(domain)
     base_url = _rdap_base_url(normalized_domain)
     lookup_url = f"{base_url.rstrip('/')}/domain/{quote(normalized_domain, safe='')}"
     response = _get_response(lookup_url, normalized_domain, domain_query=True)
