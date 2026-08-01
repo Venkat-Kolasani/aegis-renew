@@ -25,6 +25,18 @@ python -m pytest backend/tests -q
 The Phase 0 API exposes `GET /health`; business routes are intentionally typed
 501 placeholders until their owner begins the corresponding build prompt.
 
+### Domain expiry detection
+
+`get_domain_expiry()` validates and normalizes a bare domain, uses IANA's DNS
+RDAP bootstrap registry to select the authoritative service, and returns a
+typed expiration date, registrar name when published, and raw RDAP statuses.
+It never scrapes WHOIS text.
+
+Invalid input, missing domains, provider timeouts/transport failures, and
+malformed RDAP responses raise a classified `DomainLookupError`. Callers can
+log or isolate one failed lookup without losing successful results from a
+larger scan. Unit tests mock every HTTP request and require no internet access.
+
 ## Frontend development
 
 ```bash
