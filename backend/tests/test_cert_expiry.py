@@ -29,7 +29,7 @@ def _crt_row(
     names: str = "example.com",
     serial: str = "01",
     issuer: str = "C=US, O=Example CA, CN=Example Issuer",
-    not_before: str = "2020-01-01T00:00:00Z",
+    not_before: str = "2000-01-01T00:00:00Z",
 ) -> dict[str, object]:
     """Build a representative crt.sh certificate row."""
     return {
@@ -135,6 +135,26 @@ def test_latest_expired_certificate_is_used_when_all_are_expired(
 
     assert result.not_after == datetime(2005, 1, 1, tzinfo=UTC)
     assert result.source == "crt.sh"
+
+
+def test_inverted_crt_date_range_is_rejected_and_uses_tls_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A certificate starting after it expires cannot become a candidate."""
+    inverted = _crt_row(
+        "2095-01-01T00:00:00Z",
+        not_before="2096-01-01T00:00:00Z",
+        serial="inverted",
+    )
+
+    assert cert_expiry._parse_crt_candidate(inverted, "example.com") is None
+
+    _mock_crt_payload(monkeypatch, [inverted])
+    monkeypatch.setattr(cert_expiry, "_tls_lookup", _fallback_result)
+
+    result = get_cert_expiry("example.com")
+
+    assert result.source == "tls"
 
 
 @pytest.mark.parametrize(

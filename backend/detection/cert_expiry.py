@@ -13,7 +13,7 @@ from typing import Literal
 
 import httpx
 
-from backend.detection.domain_expiry import DomainLookupError, _normalize_domain
+from backend.detection.domain_expiry import DomainLookupError, normalize_domain
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class _CrtShFallbackNeeded(RuntimeError):
 def _normalize_hostname(domain: str) -> str:
     """Apply the established RDAP hostname normalization behavior."""
     try:
-        return _normalize_domain(domain)
+        return normalize_domain(domain)
     except DomainLookupError as exc:
         raise CertLookupError(
             CertLookupErrorKind.INVALID_DOMAIN, str(domain), str(exc)
@@ -103,7 +103,7 @@ def _normalize_certificate_name(name: str) -> str | None:
     if wildcard:
         candidate = candidate[2:]
     try:
-        normalized = _normalize_domain(candidate)
+        normalized = normalize_domain(candidate)
     except DomainLookupError:
         return None
     return f"*.{normalized}" if wildcard else normalized
@@ -151,6 +151,8 @@ def _parse_crt_candidate(
         not_before = _parse_crt_datetime(row.get("not_before"))
         not_after = _parse_crt_datetime(row.get("not_after"))
     except (OSError, OverflowError, TypeError, ValueError):
+        return None
+    if not_before > not_after:
         return None
     identity = _certificate_identity(row, issuer, not_before, not_after, names)
     return _CertificateCandidate(
