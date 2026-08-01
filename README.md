@@ -31,8 +31,9 @@ npm run build
 npm test
 ```
 
-The dashboard currently renders contract-shaped domain fixtures. `npm test`
-server-renders the domain list through its empty, loading, and populated states;
+The dashboard currently renders six-plus contract-shaped domain fixtures with
+green/yellow/red expiry urgency and a distinct DNS takeover signal. `npm test`
+covers empty, loading, error, healthy, near-expiry, urgent, and DNS-risk states;
 live API data is added in the follow-up dashboard slice.
 
 ## Configuration and database
