@@ -8,15 +8,21 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import lru_cache
 from typing import Literal, Pattern
 
 import dns.exception
+import dns.name
 import dns.resolver
 import httpx
 
 from backend.detection.domain_expiry import DomainLookupError, normalize_domain
 
 logger = logging.getLogger(__name__)
+_REGEX_METACHARACTERS = frozenset(".^$*+?{}[]\\|()")
+_DNS_LABEL_PATTERN = re.compile(
+    r"^[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?$", re.IGNORECASE
+)
 
 MAX_CNAME_HOPS = 10
 DNS_TIMEOUT_SECONDS = 2.0
@@ -100,6 +106,7 @@ class _Fingerprint:
     suffixes: tuple[str, ...]
     nxdomain: bool
     http_status: int | None
+    literal: str | None
     pattern: Pattern[str] | None
 
 
@@ -161,35 +168,13 @@ def _resolve_cname_chain(
     visited = {domain}
     targets: list[str] = []
     for _ in range(MAX_CNAME_HOPS):
-        try:
-            answer = resolver.resolve(
-                current, "CNAME", lifetime=DNS_LIFETIME_SECONDS, search=False
-            )
-        except dns.resolver.NoAnswer:
-            return _CnameResolution(tuple(targets), terminal_nxdomain=False)
-        except dns.resolver.NXDOMAIN:
+        target, terminal_nxdomain = _resolve_cname_hop(
+            current, domain, resolver
+        )
+        if target is None:
             return _CnameResolution(
-                tuple(targets), terminal_nxdomain=bool(targets)
+                tuple(targets), terminal_nxdomain and bool(targets)
             )
-        except (dns.resolver.LifetimeTimeout, dns.exception.Timeout) as exc:
-            raise _lookup_error(
-                TakeoverLookupErrorKind.DNS_TIMEOUT,
-                domain,
-                f"DNS timed out while resolving {current}",
-            ) from exc
-        except dns.resolver.NoNameservers as exc:
-            raise _lookup_error(
-                TakeoverLookupErrorKind.DNS_UNREACHABLE,
-                domain,
-                f"No nameserver could answer for {current}",
-            ) from exc
-        except dns.exception.DNSException as exc:
-            raise _lookup_error(
-                TakeoverLookupErrorKind.DNS_UNREACHABLE,
-                domain,
-                f"DNS resolution failed for {current}",
-            ) from exc
-        target = _answer_target(answer, domain)
         if target in visited:
             raise _lookup_error(
                 TakeoverLookupErrorKind.CNAME_LOOP,
@@ -206,18 +191,71 @@ def _resolve_cname_chain(
     )
 
 
+def _resolve_cname_hop(
+    hostname: str, domain: str, resolver: dns.resolver.Resolver
+) -> tuple[str | None, bool]:
+    """Resolve one CNAME hop and map resolver failures consistently."""
+    try:
+        answer = resolver.resolve(
+            hostname, "CNAME", lifetime=DNS_LIFETIME_SECONDS, search=False
+        )
+    except dns.resolver.NoAnswer:
+        return None, False
+    except dns.resolver.NXDOMAIN:
+        return None, True
+    except (dns.resolver.LifetimeTimeout, dns.exception.Timeout) as exc:
+        raise _lookup_error(
+            TakeoverLookupErrorKind.DNS_TIMEOUT,
+            domain,
+            f"DNS timed out while resolving {hostname}",
+        ) from exc
+    except dns.resolver.NoNameservers as exc:
+        raise _lookup_error(
+            TakeoverLookupErrorKind.DNS_UNREACHABLE,
+            domain,
+            f"No nameserver could answer for {hostname}",
+        ) from exc
+    except dns.exception.DNSException as exc:
+        raise _lookup_error(
+            TakeoverLookupErrorKind.DNS_UNREACHABLE,
+            domain,
+            f"DNS resolution failed for {hostname}",
+        ) from exc
+    return _answer_target(answer, domain), False
+
+
 def _answer_target(answer: object, domain: str) -> str:
     """Read and normalize the single target from a CNAME answer."""
     try:
         record = answer[0]  # type: ignore[index]
         raw_target = str(record.target)  # type: ignore[attr-defined]
-        return normalize_domain(raw_target)
-    except (AttributeError, IndexError, TypeError, DomainLookupError) as exc:
+        return _normalize_dns_name(raw_target)
+    except (AttributeError, IndexError, TypeError, ValueError) as exc:
         raise _lookup_error(
             TakeoverLookupErrorKind.DNS_UNREACHABLE,
             domain,
             "DNS returned a malformed CNAME answer",
         ) from exc
+
+
+def _normalize_dns_name(value: str) -> str:
+    """Normalize a DNS answer name while permitting label underscores."""
+    try:
+        name = dns.name.from_text(value)
+        normalized = name.canonicalize().to_text(omit_final_dot=True)
+    except (dns.exception.DNSException, UnicodeError) as exc:
+        raise ValueError("Malformed DNS name") from exc
+    if (
+        not normalized
+        or normalized == "@"
+        or len(normalized) > 253
+        or any(
+            _DNS_LABEL_PATTERN.fullmatch(label) is None
+            for label in normalized.split(".")
+        )
+    ):
+        raise ValueError("Malformed DNS name")
+    return normalized
 
 
 def _fingerprint_error(domain: str, message: str) -> TakeoverLookupError:
@@ -227,8 +265,13 @@ def _fingerprint_error(domain: str, message: str) -> TakeoverLookupError:
     )
 
 
-def _load_fingerprints(domain: str) -> tuple[_Fingerprint, ...]:
-    """Fetch and parse vulnerable entries from the immutable upstream source."""
+class _FingerprintFetchError(RuntimeError):
+    """Represent a domain-independent fingerprint-source failure."""
+
+
+@lru_cache(maxsize=1)
+def _fetch_fingerprint_payload() -> object:
+    """Fetch and cache one successful immutable upstream payload."""
     try:
         response = httpx.get(
             FINGERPRINT_URL,
@@ -238,17 +281,25 @@ def _load_fingerprints(domain: str) -> tuple[_Fingerprint, ...]:
         )
         response.raise_for_status()
     except httpx.TimeoutException as exc:
-        raise _fingerprint_error(domain, "Fingerprint source timed out") from exc
+        raise _FingerprintFetchError("Fingerprint source timed out") from exc
     except (httpx.TransportError, httpx.HTTPStatusError) as exc:
-        raise _fingerprint_error(
-            domain, "Fingerprint source could not be reached"
+        raise _FingerprintFetchError(
+            "Fingerprint source could not be reached"
         ) from exc
     try:
-        payload = response.json()
+        return response.json()
     except ValueError as exc:
-        raise _fingerprint_error(
-            domain, "Fingerprint source returned invalid JSON"
+        raise _FingerprintFetchError(
+            "Fingerprint source returned invalid JSON"
         ) from exc
+
+
+def _load_fingerprints(domain: str) -> tuple[_Fingerprint, ...]:
+    """Parse vulnerable entries from the cached immutable upstream payload."""
+    try:
+        payload = _fetch_fingerprint_payload()
+    except _FingerprintFetchError as exc:
+        raise _fingerprint_error(domain, str(exc)) from exc
     return _parse_fingerprint_payload(payload, domain)
 
 
@@ -286,10 +337,19 @@ def _parse_fingerprint_entry(entry: object) -> _Fingerprint | None:
         return None
     nxdomain = entry.get("nxdomain") is True
     http_status = _http_status(entry.get("http_status"))
-    pattern = _fingerprint_pattern(entry.get("fingerprint"), nxdomain, http_status)
-    if not nxdomain and http_status is None and pattern is None:
+    literal, pattern = _fingerprint_matchers(
+        entry.get("fingerprint"), nxdomain, http_status
+    )
+    if (
+        not nxdomain
+        and http_status is None
+        and literal is None
+        and pattern is None
+    ):
         return None
-    return _Fingerprint(service.strip(), suffixes, nxdomain, http_status, pattern)
+    return _Fingerprint(
+        service.strip(), suffixes, nxdomain, http_status, literal, pattern
+    )
 
 
 def _normalize_suffix(value: str) -> str | None:
@@ -307,18 +367,20 @@ def _http_status(value: object) -> int | None:
     return None
 
 
-def _fingerprint_pattern(
+def _fingerprint_matchers(
     value: object, nxdomain: bool, http_status: int | None
-) -> Pattern[str] | None:
-    """Compile one upstream HTTP regex, ignoring malformed expressions."""
+) -> tuple[str | None, Pattern[str] | None]:
+    """Build a literal or regex matcher, ignoring malformed expressions."""
     if nxdomain or http_status is not None:
-        return None
+        return None, None
     if not isinstance(value, str) or not value:
-        return None
+        return None, None
+    if not any(character in _REGEX_METACHARACTERS for character in value):
+        return value.casefold(), None
     try:
-        return re.compile(value, flags=re.IGNORECASE)
+        return None, re.compile(value, flags=re.IGNORECASE)
     except re.error:
-        return None
+        return None, None
 
 
 def _matches_suffix(target: str, suffix: str) -> bool:
@@ -346,15 +408,18 @@ def _confirmation_error(domain: str, message: str) -> TakeoverLookupError:
     )
 
 
-def _public_target_addresses(
-    target: str, domain: str, resolver: dns.resolver.Resolver
-) -> tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...]:
-    """Resolve and validate every terminal target address before HTTP."""
+def _validate_public_addresses(
+    hostname: str, domain: str, resolver: dns.resolver.Resolver
+) -> None:
+    """Require every resolved address for one hostname to be public."""
     addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
     for record_type in ("A", "AAAA"):
         try:
             answer = resolver.resolve(
-                target, record_type, lifetime=DNS_LIFETIME_SECONDS, search=False
+                hostname,
+                record_type,
+                lifetime=DNS_LIFETIME_SECONDS,
+                search=False,
             )
         except dns.resolver.NoAnswer:
             continue
@@ -375,9 +440,9 @@ def _public_target_addresses(
         raise _confirmation_error(domain, "Confirmation target has no IP address")
     if any(not address.is_global for address in addresses):
         raise _confirmation_error(
-            domain, "Confirmation target resolved to a non-public address"
+            domain,
+            f"Confirmation hostname {hostname} resolved to a non-public address",
         )
-    return tuple(addresses)
 
 
 def _answer_addresses(
@@ -423,8 +488,13 @@ def _read_bounded_body(response: httpx.Response) -> tuple[str, bool]:
 def _http_observation(
     domain: str, target: str, resolver: dns.resolver.Resolver
 ) -> _HttpObservation:
-    """Make one bounded HTTPS request after rejecting non-public targets."""
-    _public_target_addresses(target, domain, resolver)
+    """Make one bounded HTTPS request after rejecting non-public hostnames.
+
+    Preflight resolution limits SSRF exposure but cannot eliminate DNS rebinding
+    between validation and the HTTP client's independent connection lookup.
+    """
+    for hostname in dict.fromkeys((target, domain)):
+        _validate_public_addresses(hostname, domain, resolver)
     try:
         with httpx.stream(
             "GET",
@@ -458,13 +528,21 @@ def _confirm_fingerprint(
             else _Confirmation.INCONCLUSIVE
         )
     observation = _http_observation(domain, target, resolver)
+    if fingerprint.http_status == observation.status_code:
+        return _Confirmation.CONFIRMED
+    if 500 <= observation.status_code <= 599:
+        return _Confirmation.INCONCLUSIVE
     if fingerprint.http_status is not None:
-        return (
-            _Confirmation.CONFIRMED
-            if observation.status_code == fingerprint.http_status
-            else _Confirmation.LEGITIMATE
-        )
-    if fingerprint.pattern is not None and fingerprint.pattern.search(observation.body):
+        return _Confirmation.LEGITIMATE
+    if (
+        fingerprint.literal is not None
+        and fingerprint.literal in observation.body.casefold()
+    ):
+        return _Confirmation.CONFIRMED
+    if (
+        fingerprint.pattern is not None
+        and fingerprint.pattern.search(observation.body)
+    ):
         return _Confirmation.CONFIRMED
     return (
         _Confirmation.INCONCLUSIVE

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import nullcontext
 from dataclasses import dataclass
 
@@ -16,6 +17,14 @@ from backend.detection.takeover_risk import (
     TakeoverLookupErrorKind,
     check_takeover_risk,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_fingerprint_payload_cache() -> Iterator[None]:
+    """Keep fingerprint fetch caching isolated across offline tests."""
+    takeover_risk._fetch_fingerprint_payload.cache_clear()
+    yield
+    takeover_risk._fetch_fingerprint_payload.cache_clear()
 
 
 @dataclass(frozen=True)
@@ -66,12 +75,13 @@ def _fingerprint_payload(
     service: str = "AWS/S3",
     fingerprint: str = "The specified bucket does not exist",
     nxdomain: bool = False,
+    http_status: int | None = None,
 ) -> dict[str, object]:
     """Build one upstream-shaped fingerprint entry."""
     return {
         "cname": [suffix],
         "fingerprint": fingerprint,
-        "http_status": None,
+        "http_status": http_status,
         "nxdomain": nxdomain,
         "service": service,
         "vulnerable": vulnerable,
@@ -129,6 +139,24 @@ def test_multi_hop_cname_chain_returns_final_target(
     assert result.confidence == "none"
 
 
+def test_cname_chain_over_maximum_is_classified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A chain beyond the configured hop boundary fails conservatively."""
+    records: dict[tuple[str, str], object] = {}
+    current = "app.example.com"
+    for index in range(takeover_risk.MAX_CNAME_HOPS + 1):
+        target = f"hop-{index}.provider.test"
+        records[(current, "CNAME")] = [_CnameRecord(f"{target}.")]
+        current = target
+    _install_resolver(monkeypatch, records)
+
+    with pytest.raises(TakeoverLookupError) as raised:
+        check_takeover_risk("app.example.com")
+
+    assert raised.value.kind is TakeoverLookupErrorKind.DNS_UNREACHABLE
+
+
 def test_cname_loop_is_classified(monkeypatch: pytest.MonkeyPatch) -> None:
     """A repeated CNAME target is rejected as a loop."""
     _install_resolver(
@@ -143,6 +171,47 @@ def test_cname_loop_is_classified(monkeypatch: pytest.MonkeyPatch) -> None:
         check_takeover_risk("app.example.com")
 
     assert raised.value.kind is TakeoverLookupErrorKind.CNAME_LOOP
+
+
+def test_cname_target_with_underscore_is_normalized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resolved DNS service labels may contain underscores."""
+    target = "_service.s3.amazonaws.com"
+    _install_resolver(
+        monkeypatch,
+        {
+            ("app.example.com", "CNAME"): [
+                _CnameRecord("_SERVICE.S3.AMAZONAWS.COM.")
+            ],
+            (target, "CNAME"): dns.resolver.NoAnswer(),
+        },
+    )
+    _install_fingerprints(monkeypatch, _fingerprint_payload(nxdomain=True))
+
+    result = check_takeover_risk("app.example.com")
+
+    assert result.cname_target == target
+    assert result.confidence == "pattern_only"
+
+
+def test_malformed_cname_target_is_classified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Malformed resolver-provided names fail as DNS errors, not user input."""
+    _install_resolver(
+        monkeypatch,
+        {
+            ("app.example.com", "CNAME"): [
+                _CnameRecord("bad..provider.test.")
+            ]
+        },
+    )
+
+    with pytest.raises(TakeoverLookupError) as raised:
+        check_takeover_risk("app.example.com")
+
+    assert raised.value.kind is TakeoverLookupErrorKind.DNS_UNREACHABLE
 
 
 def test_vulnerable_suffix_match_is_pattern_only(
@@ -202,6 +271,7 @@ def test_http_fingerprint_confirms_high_confidence(
     target = "missing.s3.amazonaws.com"
     records = _cname_records("app.example.com", target)
     records[(target, "A")] = [_AddressRecord("93.184.216.34")]
+    records[("app.example.com", "A")] = [_AddressRecord("93.184.216.34")]
     _install_resolver(monkeypatch, records)
     _install_fingerprints(monkeypatch, _fingerprint_payload())
     response = httpx.Response(
@@ -272,6 +342,76 @@ def test_inconclusive_http_failure_stays_pattern_only(
         )
 
     monkeypatch.setattr(takeover_risk, "_http_observation", fail_confirmation)
+
+    result = check_takeover_risk("app.example.com")
+
+    assert result.has_dangling_cname is True
+    assert result.confidence == "pattern_only"
+
+
+def test_unexpected_server_error_stays_pattern_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected provider 5xx response is never proof of legitimacy."""
+    target = "missing.s3.amazonaws.com"
+    _install_resolver(
+        monkeypatch, _cname_records("app.example.com", target)
+    )
+    _install_fingerprints(monkeypatch, _fingerprint_payload())
+    monkeypatch.setattr(
+        takeover_risk,
+        "_http_observation",
+        lambda *_: takeover_risk._HttpObservation(
+            503, "The specified bucket does not exist", False
+        ),
+    )
+
+    result = check_takeover_risk("app.example.com")
+
+    assert result.has_dangling_cname is True
+    assert result.confidence == "pattern_only"
+
+
+def test_explicit_server_status_fingerprint_can_confirm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicitly expected 5xx status remains a valid fingerprint."""
+    target = "missing.s3.amazonaws.com"
+    _install_resolver(
+        monkeypatch, _cname_records("app.example.com", target)
+    )
+    _install_fingerprints(
+        monkeypatch, _fingerprint_payload(fingerprint="", http_status=503)
+    )
+    monkeypatch.setattr(
+        takeover_risk,
+        "_http_observation",
+        lambda *_: takeover_risk._HttpObservation(503, "Unavailable", False),
+    )
+
+    result = check_takeover_risk("app.example.com")
+
+    assert result.confidence == "high"
+
+
+def test_oversized_http_body_stays_pattern_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A truncated nonmatching provider response remains inconclusive."""
+    target = "missing.s3.amazonaws.com"
+    records = _cname_records("app.example.com", target)
+    records[(target, "A")] = [_AddressRecord("93.184.216.34")]
+    records[("app.example.com", "A")] = [_AddressRecord("93.184.216.34")]
+    _install_resolver(monkeypatch, records)
+    _install_fingerprints(monkeypatch, _fingerprint_payload())
+    response = httpx.Response(
+        200,
+        content=b"x" * (takeover_risk.CONFIRMATION_MAX_BYTES + 1),
+        request=httpx.Request("GET", "https://app.example.com/"),
+    )
+    monkeypatch.setattr(
+        httpx, "stream", lambda *args, **kwargs: nullcontext(response)
+    )
 
     result = check_takeover_risk("app.example.com")
 
@@ -367,6 +507,100 @@ def test_non_public_target_blocks_http_confirmation(
 
     assert result.has_dangling_cname is True
     assert result.confidence == "pattern_only"
+
+
+def test_private_requested_hostname_blocks_http_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A public CNAME target cannot bypass a private requested hostname."""
+    target = "missing.s3.amazonaws.com"
+    records = _cname_records("app.example.com", target)
+    records[(target, "A")] = [_AddressRecord("93.184.216.34")]
+    records[("app.example.com", "A")] = [_AddressRecord("127.0.0.1")]
+    _install_resolver(monkeypatch, records)
+    _install_fingerprints(monkeypatch, _fingerprint_payload())
+
+    def unexpected_stream(*_: object, **__: object) -> object:
+        pytest.fail("Private requested hostnames must not receive HTTP requests")
+
+    monkeypatch.setattr(httpx, "stream", unexpected_stream)
+
+    result = check_takeover_risk("app.example.com")
+
+    assert result.has_dangling_cname is True
+    assert result.confidence == "pattern_only"
+
+
+def test_plain_fingerprint_uses_case_insensitive_literal_semantics() -> None:
+    """Plain punctuation is retained in a literal matcher, not compiled."""
+    fingerprint = takeover_risk._parse_fingerprint_entry(
+        _fingerprint_payload(fingerprint="Bucket unavailable: code=404!")
+    )
+
+    assert fingerprint is not None
+    assert fingerprint.literal == "bucket unavailable: code=404!"
+    assert fingerprint.pattern is None
+
+
+def test_genuine_regex_fingerprint_remains_supported() -> None:
+    """An upstream expression with regex metacharacters remains a regex."""
+    fingerprint = takeover_risk._parse_fingerprint_entry(
+        _fingerprint_payload(fingerprint=r"Bucket [0-9]+ unavailable")
+    )
+
+    assert fingerprint is not None
+    assert fingerprint.literal is None
+    assert fingerprint.pattern is not None
+    assert fingerprint.pattern.search("bucket 42 unavailable") is not None
+
+
+def test_invalid_regex_fingerprint_is_rejected() -> None:
+    """An invalid upstream regex cannot become a usable fingerprint."""
+    fingerprint = takeover_risk._parse_fingerprint_entry(
+        _fingerprint_payload(fingerprint="[")
+    )
+
+    assert fingerprint is None
+
+
+def test_successful_fingerprint_payload_fetch_is_reused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repeated checks reuse the same successful pinned payload fetch."""
+    target = "missing.elasticbeanstalk.com"
+    _install_resolver(
+        monkeypatch,
+        {
+            ("app.example.com", "CNAME"): [_CnameRecord(f"{target}.")],
+            (target, "CNAME"): dns.resolver.NXDOMAIN(),
+        },
+    )
+    response = httpx.Response(
+        200,
+        json=[
+            _fingerprint_payload(
+                suffix="elasticbeanstalk.com",
+                service="AWS/Elastic Beanstalk",
+                fingerprint="NXDOMAIN",
+                nxdomain=True,
+            )
+        ],
+        request=httpx.Request("GET", takeover_risk.FINGERPRINT_URL),
+    )
+    fetch_count = 0
+
+    def get(*_: object, **__: object) -> httpx.Response:
+        nonlocal fetch_count
+        fetch_count += 1
+        return response
+
+    monkeypatch.setattr(httpx, "get", get)
+
+    first = check_takeover_risk("app.example.com")
+    second = check_takeover_risk("app.example.com")
+
+    assert first.confidence == second.confidence == "high"
+    assert fetch_count == 1
 
 
 def test_malformed_fingerprint_data_is_classified(

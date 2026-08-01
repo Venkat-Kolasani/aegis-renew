@@ -66,16 +66,20 @@ A vulnerable provider match alone returns `confidence="pattern_only"`. High
 confidence requires either the upstream HTTP fingerprint in one bounded live
 response or an exact target NXDOMAIN when upstream defines NXDOMAIN as its
 fingerprint. Timeouts, blocked/private targets, provider errors, truncated
-responses, and ambiguous results never become high confidence. A normal live
-resource returns `confidence="none"`.
+responses, unexpected HTTP 5xx responses, and ambiguous results remain
+`pattern_only`; a successful nonmatching response can return
+`confidence="none"` for a live resource.
 
 `has_dangling_cname=true` means a vulnerable provider pattern was found; it is
-not a claim of compromise. Later API integration must set confirmed
-`dns_risk=true` only for `confidence="high"` and must show `pattern_only` as
-uncertain. Fingerprints can become stale and provider behavior can change, so
-results still require authorized human review. Test only hostnames you own or
-are expressly authorized to assess. Aegis detects risk but never registers,
-claims, modifies, or exploits provider resources.
+not a claim of compromise. `pattern_only` is not `dns_risk`, and even high
+confidence is strong evidence rather than proof of exploitability. Later API
+integration must set confirmed `dns_risk=true` only for `confidence="high"`.
+Fingerprints can become stale and provider behavior can change, so results
+still require authorized human review. Address preflight checks reduce SSRF
+risk but cannot eliminate DNS rebinding between validation and the HTTP
+connection. Run live probing only for hostnames you own or are expressly
+authorized to assess. Aegis detects risk but never registers, claims, modifies,
+or exploits provider resources.
 
 ## Frontend development
 
