@@ -9,7 +9,7 @@ const domains = [{ id: 7, domain: "billing.aegis-demo.test" }];
 test("renders an idle execution control with no credential inputs", () => {
   const markup = renderToStaticMarkup(<PaymentExecution domains={domains} />);
   assert.match(markup, /data-state="idle"/);
-  assert.match(markup, /Execute autonomous renewal/);
+  assert.match(markup, /Waiting for auto_renew/);
   assert.match(markup, /browser sends only a domain id/i);
   assert.match(markup, /Approve and sync a yearly Prava mandate/i);
   assert.doesNotMatch(markup, /name="(?:amount|mandate|token|cvv|expiry|currency)"/i);
@@ -31,6 +31,28 @@ test("surfaces readiness when mandate and auto_renew align", () => {
   );
   assert.match(markup, /data-ready="true"/);
   assert.match(markup, /Ready: active mandate \+ final auto_renew/);
+  assert.match(markup, /Execute autonomous renewal/);
+  assert.doesNotMatch(markup, /disabled=""/);
+});
+
+test("keeps execute disabled when policy flags for review", () => {
+  const markup = renderToStaticMarkup(
+    <PaymentExecution
+      domains={domains}
+      selectedDomainId={7}
+      mandateActiveForSelected
+      latestDecision={{
+        domain_id: 7,
+        criticality_score: 4,
+        decision: "flag_for_review",
+        reason: "TLS is approaching but domain expiry is distant.",
+      }}
+    />,
+  );
+  assert.match(markup, /data-ready="false"/);
+  assert.match(markup, /Waiting for auto_renew/);
+  assert.match(markup, /autonomous charge is blocked/i);
+  assert.match(markup, /disabled/);
 });
 
 test("renders completed merchant result fields", () => {

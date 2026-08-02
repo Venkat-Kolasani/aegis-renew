@@ -124,6 +124,10 @@ export default function PaymentExecution({
       setError("Scan a domain before executing a renewal.");
       return;
     }
+    if (!readiness.ready) {
+      setError(readiness.message);
+      return;
+    }
     setLoading(true);
     setError(null);
     setResult(null);
@@ -206,14 +210,30 @@ export default function PaymentExecution({
         <button
           type="submit"
           className={`aegis-btn min-w-[12rem] ${
-            readiness.ready ? "aegis-btn-accent" : "aegis-btn-primary"
+            readiness.ready ? "aegis-btn-accent" : "aegis-btn-secondary"
           }`}
-          disabled={loading || domainId === null}
+          disabled={loading || domainId === null || !readiness.ready}
+          title={
+            readiness.ready
+              ? "Server will recheck mandate, quote, and auto_renew before charging"
+              : readiness.message
+          }
         >
-          {loading ? "Executing…" : "Execute autonomous renewal"}
+          {loading
+            ? "Executing…"
+            : readiness.ready
+              ? "Execute autonomous renewal"
+              : "Waiting for auto_renew"}
         </button>
       </form>
 
+      {!readiness.ready && domainId !== null ? (
+        <p className="text-xs text-ink-muted">
+          Safety gate is working: execute stays disabled until OpenAI + policy return{" "}
+          <code className="font-mono text-[11px]">auto_renew</code> for a mandated domain.
+          Nearer-expiry hosts (or the DEMO host after a chargeable ranking) unlock the button.
+        </p>
+      ) : null}
       {error ? (
         <p
           role="alert"
