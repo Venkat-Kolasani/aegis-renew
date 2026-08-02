@@ -5,6 +5,7 @@ import { FormEvent, useMemo, useState } from "react";
 import {
   executePayment,
   type PaymentExecutionResult,
+  type RankDecision,
 } from "@/lib/aegisApi";
 
 export type PaymentDomainOption = {
@@ -15,6 +16,10 @@ export type PaymentDomainOption = {
 export type PaymentExecutionProps = {
   domains: PaymentDomainOption[];
   apiBaseUrl?: string;
+  selectedDomainId?: number | null;
+  onSelectedDomainIdChange?: (domainId: number | null) => void;
+  mandateActiveForSelected?: boolean;
+  latestDecision?: RankDecision | null;
   initialResult?: PaymentExecutionResult | null;
   initialLoading?: boolean;
   initialError?: string | null;
@@ -22,7 +27,7 @@ export type PaymentExecutionProps = {
 
 function resultMessage(result: PaymentExecutionResult): string {
   if (result.completed && result.payment_status === "completed") {
-    return "Merchant checkout completed and Prava confirmed the outcome.";
+    return "Autonomous renewal finished: merchant checkout completed and Prava confirmed the outcome.";
   }
   if (result.completed) {
     return "Merchant checkout completed, but provider reporting needs reconciliation.";
@@ -30,9 +35,48 @@ function resultMessage(result: PaymentExecutionResult): string {
   return "The renewal checkout did not complete.";
 }
 
+function readinessCopy(input: {
+  hasDomains: boolean;
+  mandateActive: boolean;
+  decision: RankDecision | null | undefined;
+}): { ready: boolean; message: string } {
+  if (!input.hasDomains) {
+    return { ready: false, message: "Scan a domain before executing a renewal." };
+  }
+  if (!input.mandateActive) {
+    return {
+      ready: false,
+      message:
+        "Approve and sync a yearly Prava mandate for this domain first. Autonomy requires standing coverage.",
+    };
+  }
+  if (!input.decision) {
+    return {
+      ready: false,
+      message:
+        "Run OpenAI ranking for this inventory. Execution only proceeds on a final auto_renew decision.",
+    };
+  }
+  if (input.decision.decision !== "auto_renew") {
+    return {
+      ready: false,
+      message: `OpenAI + policy returned “${input.decision.decision.replaceAll("_", " ")}” — autonomous charge is blocked until the decision is auto_renew.`,
+    };
+  }
+  return {
+    ready: true,
+    message:
+      "Ready: active mandate + final auto_renew. Browser still sends only domain_id; the server charges under the cap.",
+  };
+}
+
 export default function PaymentExecution({
   domains,
   apiBaseUrl,
+  selectedDomainId,
+  onSelectedDomainIdChange,
+  mandateActiveForSelected = false,
+  latestDecision = null,
   initialResult = null,
   initialLoading = false,
   initialError = null,
@@ -41,10 +85,37 @@ export default function PaymentExecution({
     () => [...domains].sort((left, right) => left.domain.localeCompare(right.domain)),
     [domains],
   );
-  const [domainId, setDomainId] = useState<number | null>(sortedDomains[0]?.id ?? null);
+  const controlled = selectedDomainId !== undefined;
+  const [internalDomainId, setInternalDomainId] = useState<number | null>(
+    sortedDomains[0]?.id ?? null,
+  );
+  const domainId = useMemo(() => {
+    if (controlled) return selectedDomainId ?? null;
+    if (
+      internalDomainId !== null &&
+      sortedDomains.some((domain) => domain.id === internalDomainId)
+    ) {
+      return internalDomainId;
+    }
+    return sortedDomains[0]?.id ?? null;
+  }, [controlled, selectedDomainId, internalDomainId, sortedDomains]);
   const [result, setResult] = useState<PaymentExecutionResult | null>(initialResult);
   const [loading, setLoading] = useState(initialLoading);
   const [error, setError] = useState<string | null>(initialError);
+
+  function setDomainId(next: number | null): void {
+    if (controlled) {
+      onSelectedDomainIdChange?.(next);
+      return;
+    }
+    setInternalDomainId(next);
+  }
+
+  const readiness = readinessCopy({
+    hasDomains: sortedDomains.length > 0,
+    mandateActive: mandateActiveForSelected,
+    decision: latestDecision,
+  });
 
   async function onExecute(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -82,19 +153,36 @@ export default function PaymentExecution({
       aria-labelledby="payment-execution-heading"
       className="aegis-panel space-y-5 rounded-xl p-6 sm:p-7"
       data-state={state}
+      data-ready={readiness.ready ? "true" : "false"}
     >
       <div className="space-y-2 border-b border-line pb-5">
-        <h2 id="payment-execution-heading" className="text-base font-semibold text-ink">
+        <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+          Step 4 · Autonomous renew
+        </p>
+        <h2 id="payment-execution-heading" className="mt-1 text-base font-semibold text-ink">
           Covered renewal execution
         </h2>
         <p className="max-w-2xl text-sm leading-relaxed text-ink-muted">
-          The server reloads the latest decision, quote, and active mandate before charging.
+          After you approve a mandate once, Aegis can renew without another passkey when OpenAI +
+          policy say <code className="font-mono text-[11px]">auto_renew</code> and the quote fits
+          the cap.
         </p>
         <p className="rounded-md border border-line bg-neutral-soft px-3 py-2 text-xs text-ink-muted">
           The browser sends only a domain id—never an amount, mandate id, merchant, or payment
           credential.
         </p>
       </div>
+
+      <p
+        role="status"
+        className={`rounded-lg border px-3 py-2.5 text-sm ${
+          readiness.ready
+            ? "border-ok/25 bg-ok-soft text-ok"
+            : "border-line bg-neutral-soft text-ink-muted"
+        }`}
+      >
+        {readiness.message}
+      </p>
 
       <form className="flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={onExecute}>
         <label className="block flex-1 space-y-1.5 text-sm text-ink">
@@ -117,16 +205,15 @@ export default function PaymentExecution({
         </label>
         <button
           type="submit"
-          className="aegis-btn aegis-btn-primary"
+          className={`aegis-btn min-w-[12rem] ${
+            readiness.ready ? "aegis-btn-accent" : "aegis-btn-primary"
+          }`}
           disabled={loading || domainId === null}
         >
-          {loading ? "Executing…" : "Execute covered renewal"}
+          {loading ? "Executing…" : "Execute autonomous renewal"}
         </button>
       </form>
 
-      {sortedDomains.length === 0 && !error ? (
-        <p className="text-sm text-ink-muted">Scan a domain before executing a renewal.</p>
-      ) : null}
       {error ? (
         <p
           role="alert"
@@ -137,7 +224,7 @@ export default function PaymentExecution({
       ) : null}
       {loading ? (
         <p role="status" className="text-sm text-ink-muted">
-          Rechecking current mandate coverage and merchant quote…
+          Rechecking OpenAI decision, mandate coverage, and merchant quote…
         </p>
       ) : null}
       {!loading && !error && result ? (

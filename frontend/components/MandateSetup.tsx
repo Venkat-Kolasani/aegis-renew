@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { reconcileMandate } from "@/lib/aegisApi";
 
@@ -22,6 +22,9 @@ export type MandateUiState =
 export type MandateSetupProps = {
   domains: MandateDomainOption[];
   apiBaseUrl?: string;
+  selectedDomainId?: number | null;
+  onSelectedDomainIdChange?: (domainId: number | null) => void;
+  onMandateCoverageChange?: (domainId: number | null, active: boolean) => void;
   /** DEMO defaults: Aegis Demo Registrar (checkout via /api/demo/registrar/*). */
   defaultMerchantName?: string;
   defaultMerchantUrl?: string;
@@ -82,6 +85,9 @@ function initialDomainId(domains: MandateDomainOption[]): number | null {
 export default function MandateSetup({
   domains,
   apiBaseUrl,
+  selectedDomainId: controlledDomainId,
+  onSelectedDomainIdChange,
+  onMandateCoverageChange,
   // DEMO: JOINT-2/VENKAT-3 self-owned registrar; mandate URL stays example.com.
   defaultMerchantName = "Aegis Demo Registrar",
   defaultMerchantUrl = "https://example.com",
@@ -102,7 +108,11 @@ export default function MandateSetup({
     [domains],
   );
 
-  const [domainId, setDomainId] = useState<number | null>(() => initialDomainId(sortedDomains));
+  const controlled = controlledDomainId !== undefined;
+  const [internalDomainId, setInternalDomainId] = useState<number | null>(() =>
+    initialDomainId(sortedDomains),
+  );
+  const domainId = controlled ? (controlledDomainId ?? null) : internalDomainId;
   const [state, setState] = useState<MandateUiState>(
     initialState ?? (sortedDomains.length ? "idle" : "error"),
   );
@@ -119,6 +129,21 @@ export default function MandateSetup({
     }
     return initialDomainId(sortedDomains);
   }, [sortedDomains, domainId]);
+
+  useEffect(() => {
+    onMandateCoverageChange?.(
+      selectedDomainId,
+      state === "active" ? true : false,
+    );
+  }, [onMandateCoverageChange, selectedDomainId, state]);
+
+  function setDomainId(nextId: number | null): void {
+    if (controlled) {
+      onSelectedDomainIdChange?.(nextId);
+      return;
+    }
+    setInternalDomainId(nextId);
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -224,12 +249,15 @@ export default function MandateSetup({
       data-state={state}
     >
       <div className="space-y-2 border-b border-line pb-5">
-        <h2 id="mandate-setup-heading" className="text-base font-semibold text-ink">
+        <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+          Step 2 · Standing authority
+        </p>
+        <h2 id="mandate-setup-heading" className="mt-1 text-base font-semibold text-ink">
           Yearly renewal mandate
         </h2>
         <p className="max-w-2xl text-sm leading-relaxed text-ink-muted">
-          Approve a merchant-locked yearly Prava mandate with a passkey. The browser never chooses a
-          mandate id, network token, or dynamic CVV.
+          Approve once with a passkey. That standing Prava mandate is what makes later renewals
+          autonomous—no card in chat, no per-renewal biometric when coverage still matches.
         </p>
         <p className="rounded-md border border-warn/20 bg-warn-soft px-3 py-2 text-xs text-warn">
           {/* DEMO: JOINT-2 / VENKAT-3 merchant path */}
@@ -348,7 +376,8 @@ export default function MandateSetup({
           role="status"
           className="rounded-lg border border-ok/25 bg-ok-soft px-3 py-2 text-sm text-ok"
         >
-          Active mandate coverage synced. Run ranking again before executing renewal.
+          Active mandate synced. Next: run OpenAI ranking. Autonomous charge only fires on a final
+          auto_renew with this coverage.
         </p>
       ) : null}
 

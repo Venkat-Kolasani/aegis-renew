@@ -40,9 +40,9 @@ test("renders auto_renew, flag_for_review, and ignore distinctly with full reaso
   assert.match(markup, /data-decision="auto_renew"/);
   assert.match(markup, /data-decision="flag_for_review"/);
   assert.match(markup, /data-decision="ignore"/);
-  assert.match(markup, /Auto renew \(recommendation\)/);
-  assert.match(markup, /Flag for review/);
-  assert.match(markup, />Ignore</);
+  assert.match(markup, /Auto renew · autonomous when mandated/);
+  assert.match(markup, /Flag for review · no autonomous charge/);
+  assert.match(markup, /Ignore · no charge/);
   assert.match(markup, /94\/100/);
   assert.match(
     markup,
@@ -57,6 +57,8 @@ test("renders auto_renew, flag_for_review, and ignore distinctly with full reaso
     /Expiry horizons are healthy and no confirmed DNS takeover risk is present\./,
   );
   assert.match(markup, /Not a payment/);
+  assert.match(markup, /gpt-4o-mini/);
+  assert.match(markup, /OpenAI/);
   assert.doesNotMatch(
     markup,
     /complet(?:es|ed) checkout|charg(?:es|ed) (?:a |the )?mandate/i,
@@ -132,7 +134,7 @@ test("renders loading state", () => {
     <AgentDecisionLog domains={domains} initialLoading />,
   );
   assert.match(markup, /data-state="loading"/);
-  assert.match(markup, /Ranking domains/);
+  assert.match(markup, /Ranking with OpenAI/);
 });
 
 test("renders API error state", () => {
@@ -150,4 +152,5 @@ test("renders idle empty guidance when no domains are scanned", () => {
   const markup = renderToStaticMarkup(<AgentDecisionLog domains={[]} />);
   assert.match(markup, /data-state="idle"/);
   assert.match(markup, /Scan domains first/);
+  assert.match(markup, /OpenAI ranking/);
 });

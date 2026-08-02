@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   rankDomains,
@@ -16,6 +16,8 @@ export type DecisionDomainOption = {
 export type AgentDecisionLogProps = {
   domains: DecisionDomainOption[];
   apiBaseUrl?: string;
+  selectedDomainId?: number | null;
+  onDecisionsChange?: (decisions: RankDecision[] | null) => void;
   /** Test/demo seam for rendering without a live rank call. */
   initialDecisions?: RankDecision[] | null;
   initialLoading?: boolean;
@@ -26,22 +28,25 @@ export type AgentDecisionLogProps = {
 
 const DECISION_STYLES: Record<
   AgentDecision,
-  { label: string; className: string; barClassName: string }
+  { label: string; className: string; barClassName: string; hint: string }
 > = {
   auto_renew: {
-    label: "Auto renew (recommendation)",
+    label: "Auto renew · autonomous when mandated",
     className: "border-ok/25 bg-ok-soft text-ok",
     barClassName: "bg-ok",
+    hint: "OpenAI + policy approved charging under an active matching mandate.",
   },
   flag_for_review: {
-    label: "Flag for review",
+    label: "Flag for review · no autonomous charge",
     className: "border-warn/25 bg-warn-soft text-warn",
     barClassName: "bg-warn",
+    hint: "Inventory may look calm; the model still wants a human before payment.",
   },
   ignore: {
-    label: "Ignore",
+    label: "Ignore · no charge",
     className: "border-line bg-neutral-soft text-ink-muted",
     barClassName: "bg-ink-faint",
+    hint: "No renewal action recommended right now.",
   },
 };
 
@@ -59,6 +64,8 @@ function domainLabel(
 export default function AgentDecisionLog({
   domains,
   apiBaseUrl,
+  selectedDomainId = null,
+  onDecisionsChange,
   initialDecisions = null,
   initialLoading = false,
   initialError = null,
@@ -72,6 +79,10 @@ export default function AgentDecisionLog({
     if (initialRankedDomainIds) return domainIdsKey(initialRankedDomainIds);
     return domainIdsKey(domains.map((item) => item.id));
   });
+
+  useEffect(() => {
+    onDecisionsChange?.(decisions);
+  }, [decisions, onDecisionsChange]);
 
   const byId = useMemo(() => {
     const map = new Map<number, string>();
@@ -146,12 +157,16 @@ export default function AgentDecisionLog({
       <div className="space-y-2 border-b border-line pb-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 id="agent-decision-log-heading" className="text-base font-semibold text-ink">
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+              Step 3 · OpenAI
+            </p>
+            <h2 id="agent-decision-log-heading" className="mt-1 text-base font-semibold text-ink">
               Agent recommendations
             </h2>
             <p className="mt-1 max-w-2xl text-sm leading-relaxed text-ink-muted">
-              Ranking suggests urgency and next steps. It does not charge a mandate, mint a
-              network token, or complete checkout.
+              <span className="font-medium text-ink">gpt-4o-mini</span> scores urgency from live
+              scan fields, then deterministic policy keeps or downgrades{" "}
+              <code className="font-mono text-[11px]">auto_renew</code>. Ranking never charges.
             </p>
           </div>
           <button
@@ -160,21 +175,22 @@ export default function AgentDecisionLog({
             onClick={() => void onRank()}
             disabled={loading || domains.length === 0}
           >
-            {loading ? "Ranking…" : "Run ranking"}
+            {loading ? "Calling OpenAI…" : "Run OpenAI ranking"}
           </button>
         </div>
         <p className="rounded-md border border-line bg-neutral-soft px-3 py-2 text-xs text-ink-muted">
           <span className="font-medium text-ink">Not a payment.</span>{" "}
-          <code className="font-mono text-[11px]">POST /api/agent/rank</code> is advisory and
-          policy-gated. Execution stays on a separate payments path.
+          <code className="font-mono text-[11px]">POST /api/agent/rank</code> is advisory until an
+          active mandate and final <code className="font-mono text-[11px]">auto_renew</code> unlock
+          execution.
         </p>
       </div>
 
       {loading ? (
         <div aria-busy="true" role="status" className="py-6 text-center">
-          <p className="text-sm font-medium text-ink">Ranking domains…</p>
+          <p className="text-sm font-medium text-ink">Ranking with OpenAI…</p>
           <p className="mt-1 text-sm text-ink-muted">
-            Model recommendations are checked against mandate coverage before display.
+            Model output is checked against mandate coverage before display.
           </p>
         </div>
       ) : null}
@@ -193,8 +209,8 @@ export default function AgentDecisionLog({
           {decisions !== null && sortedDecisions.length === 0
             ? "Ranking completed with no recommendations."
             : domains.length === 0
-              ? "Scan domains first, then run ranking to see recommendations."
-              : "Run ranking to generate a recommendation for each monitored domain."}
+              ? "Scan domains first, then run OpenAI ranking."
+              : "Run OpenAI ranking to decide renew, review, or ignore for each domain."}
         </p>
       ) : null}
 
@@ -212,11 +228,17 @@ export default function AgentDecisionLog({
           <ul className="space-y-4">
             {sortedDecisions.map((item) => {
               const style = DECISION_STYLES[item.decision];
+              const selected = selectedDomainId === item.domain_id;
               return (
                 <li
                   key={item.domain_id}
-                  className="rounded-lg border border-line bg-bg-elevated p-4"
+                  className={`rounded-lg border p-4 ${
+                    selected
+                      ? "border-accent/40 bg-accent-soft/40"
+                      : "border-line bg-bg-elevated"
+                  }`}
                   data-decision={item.decision}
+                  data-selected={selected ? "true" : undefined}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
@@ -254,7 +276,8 @@ export default function AgentDecisionLog({
                     </div>
                   </div>
 
-                  <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-ink">
+                  <p className="mt-3 text-xs text-ink-muted">{style.hint}</p>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-ink">
                     {item.reason}
                   </p>
                 </li>

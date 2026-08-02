@@ -50,8 +50,9 @@ test("renders sanitized active reconciliation guidance", () => {
     <MandateSetup domains={domains} initialState="active" />,
   );
   assert.match(markup, /data-state="active"/);
-  assert.match(markup, /Active mandate coverage synced/);
-  assert.match(markup, /Run ranking again/);
+  assert.match(markup, /Active mandate synced/);
+  assert.match(markup, /OpenAI ranking/);
+  assert.match(markup, /auto_renew/);
 });
 
 test("renders mocked cancellation state", () => {

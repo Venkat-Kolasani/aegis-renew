@@ -68,8 +68,9 @@ function getExpiryStatus(
     };
   }
 
+  // Inventory proximity only — OpenAI ranking may still flag review or auto-renew.
   return {
-    label: "Healthy",
+    label: "No urgent expiry",
     tone: "green",
     className: "bg-ok-soft text-ok ring-1 ring-inset ring-ok/20",
     dotClassName: "bg-ok",

@@ -9,9 +9,28 @@ const domains = [{ id: 7, domain: "billing.aegis-demo.test" }];
 test("renders an idle execution control with no credential inputs", () => {
   const markup = renderToStaticMarkup(<PaymentExecution domains={domains} />);
   assert.match(markup, /data-state="idle"/);
-  assert.match(markup, /Execute covered renewal/);
+  assert.match(markup, /Execute autonomous renewal/);
   assert.match(markup, /browser sends only a domain id/i);
+  assert.match(markup, /Approve and sync a yearly Prava mandate/i);
   assert.doesNotMatch(markup, /name="(?:amount|mandate|token|cvv|expiry|currency)"/i);
+});
+
+test("surfaces readiness when mandate and auto_renew align", () => {
+  const markup = renderToStaticMarkup(
+    <PaymentExecution
+      domains={domains}
+      selectedDomainId={7}
+      mandateActiveForSelected
+      latestDecision={{
+        domain_id: 7,
+        criticality_score: 88,
+        decision: "auto_renew",
+        reason: "Expiry is imminent and coverage matches.",
+      }}
+    />,
+  );
+  assert.match(markup, /data-ready="true"/);
+  assert.match(markup, /Ready: active mandate \+ final auto_renew/);
 });
 
 test("renders completed merchant result fields", () => {

@@ -10,18 +10,18 @@ const pipeline = [
   },
   {
     step: "02",
-    title: "Rank",
-    body: "An LLM scores urgency and recommends renew, review, or ignore—without spending money.",
+    title: "Mandate",
+    body: "Approve a merchant-locked yearly Prava cap once with a passkey. That standing authority is what makes renewals autonomous later.",
   },
   {
     step: "03",
-    title: "Mandate",
-    body: "You approve a merchant-locked yearly cap in Prava once. Credentials never live in the browser.",
+    title: "Rank with OpenAI",
+    body: "gpt-4o-mini scores urgency from live scan fields; deterministic policy keeps or downgrades auto_renew. Ranking never spends money.",
   },
   {
     step: "04",
-    title: "Renew",
-    body: "Policy charges the mandate and completes checkout only when coverage, merchant, and price align.",
+    title: "Renew autonomously",
+    body: "Only when a final auto_renew decision, active mandate, merchant lock, and quote under the cap all align—then Aegis completes checkout.",
   },
 ] as const;
 
@@ -43,9 +43,9 @@ export default function LandingPage() {
                   <span className="text-accent">your terms</span>, not the registrar&apos;s clock.
                 </h1>
                 <p className="max-w-xl text-base leading-relaxed text-ink-muted sm:text-lg">
-                  Aegis watches domains, certificates, and dangling DNS before they become outages.
-                  When renewal is warranted, it pays through a user-approved Prava mandate—not a card
-                  pasted into a chat window.
+                  Expired domains and TLS certs take sites offline without warning. Aegis detects the
+                  risk, ranks it with OpenAI, and renews through a user-approved Prava mandate—so the
+                  agent can pay later without another passkey when coverage still matches.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
@@ -65,21 +65,21 @@ export default function LandingPage() {
               <ul className="mt-5 space-y-4 text-sm leading-relaxed text-ink-muted">
                 <li className="flex gap-3">
                   <span className="mt-0.5 font-mono text-xs text-accent">✓</span>
-                  Live scan + inventory from your local API
+                  Live scan + inventory against your Aegis API
                 </li>
                 <li className="flex gap-3">
                   <span className="mt-0.5 font-mono text-xs text-accent">✓</span>
-                  Yearly Prava mandate setup with passkey approval
+                  OpenAI ranking gated by mandate coverage policy
                 </li>
                 <li className="flex gap-3">
                   <span className="mt-0.5 font-mono text-xs text-accent">✓</span>
-                  Sandbox checkout proof via disclosed DEMO registrar
+                  Autonomous sandbox renewal under a yearly Prava mandate
                 </li>
               </ul>
               <div className="mt-6 border-t border-line pt-5">
                 <p className="font-mono text-[11px] leading-relaxed text-ink-faint">
-                  Ranking and autonomous execute land next. The console already separates
-                  detection from payment policy.
+                  Passkey once → OpenAI ranks → policy renews only when the mandate still covers the
+                  quote. DEMO registrar checkout is disclosed in the README.
                 </p>
               </div>
             </aside>

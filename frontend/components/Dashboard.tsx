@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import DomainList from "@/components/DomainList";
 import AgentDecisionLog from "@/components/AgentDecisionLog";
@@ -11,6 +11,7 @@ import {
   isValidScanDomain,
   scanDomain,
   type DomainSummary,
+  type RankDecision,
   type ScanResult,
 } from "@/lib/aegisApi";
 import { summarizeDomains } from "@/lib/domainSummary";
@@ -18,6 +19,13 @@ import { summarizeDomains } from "@/lib/domainSummary";
 export type DashboardProps = {
   apiBaseUrl?: string;
 };
+
+const PIPELINE = [
+  { step: "1", title: "Scan", detail: "Detect expiry & DNS risk" },
+  { step: "2", title: "Mandate", detail: "Passkey once for autonomy" },
+  { step: "3", title: "Rank", detail: "OpenAI + policy" },
+  { step: "4", title: "Renew", detail: "Charge only if covered" },
+] as const;
 
 function describePartialScan(result: ScanResult): string {
   const missing: string[] = [];
@@ -60,6 +68,9 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
   const [scanning, setScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [selectedDomainId, setSelectedDomainId] = useState<number | null>(null);
+  const [mandateActiveDomainId, setMandateActiveDomainId] = useState<number | null>(null);
+  const [rankDecisions, setRankDecisions] = useState<RankDecision[] | null>(null);
   const requestIdRef = useRef(0);
   const today = new Date();
 
@@ -94,6 +105,28 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
     };
   }, [loadDomains]);
 
+  const resolvedSelectedDomainId = useMemo(() => {
+    if (domains.length === 0) return null;
+    if (
+      selectedDomainId !== null &&
+      domains.some((domain) => domain.id === selectedDomainId)
+    ) {
+      return selectedDomainId;
+    }
+    return domains[0].id;
+  }, [domains, selectedDomainId]);
+
+  const onMandateCoverageChange = useCallback(
+    (domainId: number | null, active: boolean) => {
+      setMandateActiveDomainId(active ? domainId : null);
+    },
+    [],
+  );
+
+  const onDecisionsChange = useCallback((decisions: RankDecision[] | null) => {
+    setRankDecisions(decisions);
+  }, []);
+
   async function onScan(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const domain = scanInput.trim();
@@ -125,6 +158,17 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
   }));
   const showFullSkeleton = loading && domains.length === 0;
   const refreshing = loading && domains.length > 0;
+  const selectedDecision = useMemo(
+    () =>
+      resolvedSelectedDomainId === null
+        ? null
+        : (rankDecisions?.find((item) => item.domain_id === resolvedSelectedDomainId) ??
+          null),
+    [rankDecisions, resolvedSelectedDomainId],
+  );
+  const mandateActiveForSelected =
+    resolvedSelectedDomainId !== null &&
+    mandateActiveDomainId === resolvedSelectedDomainId;
 
   return (
     <div className="aegis-fade-in px-5 py-8 sm:px-8 sm:py-10">
@@ -135,10 +179,12 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
               Operations
             </p>
             <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-              Risk inventory
+              Stop silent expiry before it becomes an outage
             </h1>
-            <p className="mt-2 max-w-lg text-sm text-ink-muted">
-              Scans persist to Postgres. Empty fields mean a detector missed data—not an all-clear.
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-muted">
+              Domains, TLS certs, and dangling DNS fail quietly. Aegis detects them, ranks with{" "}
+              <span className="font-medium text-ink">OpenAI</span>, and renews under a user-approved
+              Prava mandate—autonomous after one passkey, never a card pasted into chat.
             </p>
           </div>
           <button
@@ -150,6 +196,25 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
             {refreshing ? "Refreshing…" : "Refresh inventory"}
           </button>
         </header>
+
+        <nav
+          aria-label="Renewal pipeline"
+          className="aegis-rise grid gap-2 sm:grid-cols-4"
+          style={{ animationDelay: "40ms" }}
+        >
+          {PIPELINE.map((item) => (
+            <div
+              key={item.step}
+              className="rounded-xl border border-line bg-bg-elevated px-3.5 py-3 shadow-[0_1px_0_rgba(12,18,34,0.04)]"
+            >
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-accent">
+                Step {item.step}
+              </p>
+              <p className="mt-1 text-sm font-semibold text-ink">{item.title}</p>
+              <p className="mt-0.5 text-xs text-ink-muted">{item.detail}</p>
+            </div>
+          ))}
+        </nav>
 
         <div className="aegis-rise aegis-telemetry" style={{ animationDelay: "60ms" }}>
           <TelemetryItem label="Monitored" value={summary.monitored} />
@@ -164,7 +229,12 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
         >
           <section className="space-y-5">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-ink">Scan &amp; inventory</h2>
+              <div>
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+                  Step 1 · Detect
+                </p>
+                <h2 className="mt-1 text-sm font-semibold text-ink">Scan &amp; inventory</h2>
+              </div>
               <span className="font-mono text-[10px] text-ink-faint">GET /api/domains</span>
             </div>
 
@@ -194,7 +264,8 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
                 </button>
               </div>
               <p className="mt-3 text-xs text-ink-faint">
-                Only scan assets you own or are explicitly authorized to assess.
+                Only scan assets you own or are explicitly authorized to assess. Inventory badges
+                are calendar proximity—not the OpenAI decision.
               </p>
             </form>
 
@@ -223,6 +294,8 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
               loading={showFullSkeleton}
               error={error}
               today={today}
+              selectedDomainId={resolvedSelectedDomainId}
+              onSelectDomainId={setSelectedDomainId}
             />
           </section>
 
@@ -233,16 +306,34 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
                 Prava
               </span>
             </div>
-            <MandateSetup domains={domainOptions} apiBaseUrl={apiBaseUrl} />
+            <MandateSetup
+              domains={domainOptions}
+              apiBaseUrl={apiBaseUrl}
+              selectedDomainId={resolvedSelectedDomainId}
+              onSelectedDomainIdChange={setSelectedDomainId}
+              onMandateCoverageChange={onMandateCoverageChange}
+            />
           </aside>
         </div>
 
         <div className="aegis-rise" style={{ animationDelay: "180ms" }}>
-          <AgentDecisionLog domains={domainOptions} apiBaseUrl={apiBaseUrl} />
+          <AgentDecisionLog
+            domains={domainOptions}
+            apiBaseUrl={apiBaseUrl}
+            selectedDomainId={resolvedSelectedDomainId}
+            onDecisionsChange={onDecisionsChange}
+          />
         </div>
 
         <div className="aegis-rise" style={{ animationDelay: "220ms" }}>
-          <PaymentExecution domains={domainOptions} apiBaseUrl={apiBaseUrl} />
+          <PaymentExecution
+            domains={domainOptions}
+            apiBaseUrl={apiBaseUrl}
+            selectedDomainId={resolvedSelectedDomainId}
+            onSelectedDomainIdChange={setSelectedDomainId}
+            mandateActiveForSelected={mandateActiveForSelected}
+            latestDecision={selectedDecision}
+          />
         </div>
       </div>
     </div>

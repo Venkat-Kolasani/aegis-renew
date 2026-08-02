@@ -8,6 +8,9 @@ test("landing page renders hero and dashboard link", () => {
   assert.match(markup, /Renewal happens on/);
   assert.match(markup, /Open operations console/);
   assert.match(markup, /href="\/dashboard"/);
-  assert.match(markup, /How it works/);
+  assert.match(markup, /how-it-works/);
   assert.match(markup, /One pipeline, four hard gates/);
+  assert.match(markup, /Rank with OpenAI/);
+  assert.match(markup, /gpt-4o-mini/);
+  assert.match(markup, /Renew autonomously/);
 });

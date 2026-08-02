@@ -9,6 +9,8 @@ type DomainListProps = {
   loading?: boolean;
   error?: string | null;
   today?: Date;
+  selectedDomainId?: number | null;
+  onSelectDomainId?: (domainId: number) => void;
 };
 
 const displayDate = (value: string | null) => value?.slice(0, 10) ?? "Not available";
@@ -34,6 +36,8 @@ export default function DomainList({
   loading = false,
   error = null,
   today,
+  selectedDomainId = null,
+  onSelectDomainId,
 }: DomainListProps) {
   const referenceDate = today ?? new Date();
 
@@ -81,13 +85,15 @@ export default function DomainList({
     <div className="aegis-panel overflow-hidden rounded-xl">
       <div className="overflow-x-auto">
         <table className="min-w-[860px] w-full text-left text-sm">
-          <caption className="sr-only">Tracked domains and renewal signals</caption>
+          <caption className="px-5 pt-4 pb-2 text-left text-xs text-ink-muted">
+            Inventory is calendar proximity only. OpenAI ranking decides renew vs review vs ignore.
+          </caption>
           <thead>
             <tr className="border-b border-line bg-[#f8fafb] text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
               <th className="px-5 py-3.5">Domain</th>
               <th className="px-5 py-3.5">Domain expiry</th>
               <th className="px-5 py-3.5">TLS certificate</th>
-              <th className="px-5 py-3.5">Risk signal</th>
+              <th className="px-5 py-3.5">Inventory signal</th>
               <th className="px-5 py-3.5">Last scanned</th>
             </tr>
           </thead>
@@ -95,12 +101,18 @@ export default function DomainList({
             {domains.map((item) => (
               <tr
                 key={item.id}
-                className="border-b border-line/80 last:border-0 transition-colors duration-150 hover:bg-[#f7faf9]"
+                className={`border-b border-line/80 last:border-0 transition-colors duration-150 ${
+                  selectedDomainId === item.id
+                    ? "bg-accent-soft/60"
+                    : "hover:bg-[#f7faf9]"
+                } ${onSelectDomainId ? "cursor-pointer" : ""}`}
+                onClick={() => onSelectDomainId?.(item.id)}
+                data-selected={selectedDomainId === item.id ? "true" : undefined}
               >
                 <th scope="row" className="px-5 py-4 font-medium text-ink">
                   <span className="font-mono text-[13px] tracking-tight">{item.domain}</span>
                   <span className="mt-1 block text-xs font-normal text-ink-faint">
-                    Asset {String(item.id).padStart(2, "0")}
+                    Asset {item.id}
                   </span>
                 </th>
                 <td className="px-5 py-4">

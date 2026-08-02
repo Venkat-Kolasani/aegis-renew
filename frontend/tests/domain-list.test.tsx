@@ -31,8 +31,10 @@ test("renders the error-ready state", () => {
 test("renders a healthy populated domain", () => {
   const markup = renderToStaticMarkup(<DomainList domains={[domain]} today={today} />);
   assert.match(markup, /api\.example\.com/);
-  assert.match(markup, /Healthy/);
+  assert.match(markup, /No urgent expiry/);
   assert.match(markup, /DNS clear/);
+  assert.match(markup, /Inventory signal/);
+  assert.match(markup, /OpenAI ranking/);
   assert.match(markup, /2027-03-15/);
   assert.match(markup, /2026-08-01 03:00 UTC/);
 });
