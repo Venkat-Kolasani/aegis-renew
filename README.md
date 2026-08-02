@@ -547,11 +547,12 @@ Skipped / gated tests:
   - Postgres: [aegis-db dashboard](https://dashboard.render.com/d/dpg-d9ne3t61egvs73ft24e0-a)
   - API service: [aegis-api dashboard](https://dashboard.render.com/web/srv-d9ne4r3ncjis73a073l0)
     → public URL `https://aegis-api-imf0.onrender.com` (after start command + DB link succeed)
-- **Required one-time Render dashboard fixes for the live API:**
+- **Required Render dashboard checks for the live API:**
   1. Service → Settings → Start Command = `bash scripts/start_api.sh`
-  2. Environment → Add from Database → select `aegis-db` as `DATABASE_URL`
-  3. Shell/psql once: apply `backend/db/schema.sql`
-  4. Manual Deploy → clear build cache / deploy latest `main`
+  2. Environment → `DATABASE_URL` linked from `aegis-db` (Add from Database)
+  3. Health check path = `/health` (root `/` is intentionally 404)
+  4. Deploy latest `main` — `scripts/start_api.sh` applies `backend/db/schema.sql`
+     on boot when the `domains` table is missing (no Render Shell needed)
 - Frontend: deploy `frontend/` (e.g. Vercel) with server-only
   `AEGIS_API_ORIGIN=https://aegis-api-imf0.onrender.com` so the browser keeps
   using same-origin `/aegis-api/*` rewrites (no Prava secret in the browser).
