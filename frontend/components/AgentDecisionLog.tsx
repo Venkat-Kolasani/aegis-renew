@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 
 import {
   rankDomains,
@@ -18,6 +18,8 @@ export type AgentDecisionLogProps = {
   apiBaseUrl?: string;
   selectedDomainId?: number | null;
   onDecisionsChange?: (decisions: RankDecision[] | null) => void;
+  /** Increment to auto-run ranking (e.g. after mandate sync). */
+  autoRankNonce?: number;
   /** Test/demo seam for rendering without a live rank call. */
   initialDecisions?: RankDecision[] | null;
   initialLoading?: boolean;
@@ -66,6 +68,7 @@ export default function AgentDecisionLog({
   apiBaseUrl,
   selectedDomainId = null,
   onDecisionsChange,
+  autoRankNonce = 0,
   initialDecisions = null,
   initialLoading = false,
   initialError = null,
@@ -144,6 +147,19 @@ export default function AgentDecisionLog({
       setLoading(false);
     }
   }
+
+  const runAutoRank = useEffectEvent(() => {
+    void onRank();
+  });
+
+  useEffect(() => {
+    if (autoRankNonce <= 0) return;
+    // Defer so ranking setState is not synchronous inside the effect body.
+    const timer = window.setTimeout(() => {
+      runAutoRank();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [autoRankNonce]);
 
   const showEmptyGuidance =
     !loading && !error && (decisions === null || sortedDecisions.length === 0);

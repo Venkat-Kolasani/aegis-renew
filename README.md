@@ -23,6 +23,32 @@ Namecheap/etc. storefront). Ranking never spends; only covered execute does.
 - JOINT-3 route smoke: [`docs/evidence/joint3-covered-payment-proof.json`](docs/evidence/joint3-covered-payment-proof.json)
 - Demo script: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)
 
+## Live demo
+
+| Surface | URL |
+|---|---|
+| Operations UI | https://aegis-renew-sigma.vercel.app/dashboard |
+| Marketing home | https://aegis-renew-sigma.vercel.app/ |
+| API health | https://aegis-api-imf0.onrender.com/health |
+| API docs | https://aegis-api-imf0.onrender.com/docs |
+
+Free Render instances cold-start; wait ~30–60s on first hit if `/health` is slow.
+
+## Hackathon requirements scorecard
+
+| Rule | Status | Notes |
+|---|---|---|
+| Real Prava sandbox calls (no mocked success) | Met | Mandate + charge + report against sandbox |
+| Completed checkout, not session-only | Met | `DEMO-REN-…` + `completed=true` in JOINT-3 proof |
+| Credentials never committed | Met | `.env` gitignored; secrets only in host dashboards |
+| DEMO merchant disclosed | Met | README + `// DEMO:` / `# DEMO:` markers |
+| Ranking side-effect-free | Met | `POST /api/agent/rank` never charges |
+| Browser never sends mandate/token/CVV | Met | Only `domain_id` from UI |
+| OpenAI used for ranking | Met | Default `gpt-4o` (`OPENAI_RANKING_MODEL` override) |
+| Deployed demo | Met | Vercel UI + Render API/Postgres |
+| Real registrar UCP merchant | Not claimed | Self-owned DEMO registrar (disclosed) |
+| Live / production Prava keys | Out of scope | Sandbox only |
+
 ## Judge quickstart (local)
 
 ```bash

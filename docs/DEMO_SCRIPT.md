@@ -2,6 +2,8 @@
 
 Target length: 2–4 minutes. Record against sandbox + disclosed DEMO merchant.
 
+**Live URLs:** UI https://aegis-renew-sigma.vercel.app/dashboard · API https://aegis-api-imf0.onrender.com
+
 ## Spoken outline
 
 1. **Problem (15s)** — Domains/TLS expire; dangling DNS is takeover risk. Manual renewal is late and error-prone.

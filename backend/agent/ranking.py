@@ -59,8 +59,10 @@ MODEL = DEFAULT_MODEL
 _SYSTEM_INSTRUCTIONS = """Rank each supplied domain for domain-renewal urgency.
 Return exactly one result per domain ID using the required schema. Confirmed
 DNS takeover risk is a heavily weighted security signal. Imminent domain
-expiry is highly urgent, and imminent TLS expiry increases renewal urgency.
-Healthy distant expiries are low urgency. Treat incomplete or ambiguous facts
+expiry is highly urgent. TLS certificate expiry within about 60 days should
+raise criticality even when domain expiry is distant—prefer flag_for_review
+or auto_renew over ignore in that case. Healthy distant domain and TLS
+expiries together are low urgency. Treat incomplete or ambiguous facts
 conservatively. Recent history is context only and cannot override current
 risk. TLS and DNS are urgency signals, not separate purchases. auto_renew is a
 recommendation only: do not claim coverage, merchant, quote, currency, price,

@@ -71,6 +71,7 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
   const [selectedDomainId, setSelectedDomainId] = useState<number | null>(null);
   const [mandateActiveDomainId, setMandateActiveDomainId] = useState<number | null>(null);
   const [rankDecisions, setRankDecisions] = useState<RankDecision[] | null>(null);
+  const [autoRankNonce, setAutoRankNonce] = useState(0);
   const requestIdRef = useRef(0);
   const today = new Date();
 
@@ -119,6 +120,9 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
   const onMandateCoverageChange = useCallback(
     (domainId: number | null, active: boolean) => {
       setMandateActiveDomainId(active ? domainId : null);
+      if (active) {
+        setAutoRankNonce((value) => value + 1);
+      }
     },
     [],
   );
@@ -322,6 +326,7 @@ export default function Dashboard({ apiBaseUrl }: DashboardProps) {
             apiBaseUrl={apiBaseUrl}
             selectedDomainId={resolvedSelectedDomainId}
             onDecisionsChange={onDecisionsChange}
+            autoRankNonce={autoRankNonce}
           />
         </div>
 

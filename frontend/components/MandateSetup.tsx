@@ -382,8 +382,8 @@ export default function MandateSetup({
           role="status"
           className="rounded-lg border border-ok/25 bg-ok-soft px-3 py-2 text-sm text-ok"
         >
-          Active mandate synced. Next: run OpenAI ranking. Autonomous charge only fires on a final
-          auto_renew with this coverage.
+          Active mandate synced. OpenAI ranking starts automatically next. Autonomous charge
+          only fires on a final auto_renew with this coverage.
         </p>
       ) : null}
 

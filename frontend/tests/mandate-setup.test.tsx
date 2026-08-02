@@ -51,7 +51,7 @@ test("renders sanitized active reconciliation guidance", () => {
   );
   assert.match(markup, /data-state="active"/);
   assert.match(markup, /Active mandate synced/);
-  assert.match(markup, /OpenAI ranking/);
+  assert.match(markup, /OpenAI ranking starts automatically/);
   assert.match(markup, /auto_renew/);
 });
 
