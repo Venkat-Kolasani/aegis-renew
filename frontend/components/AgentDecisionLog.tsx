@@ -164,7 +164,7 @@ export default function AgentDecisionLog({
               Agent recommendations
             </h2>
             <p className="mt-1 max-w-2xl text-sm leading-relaxed text-ink-muted">
-              <span className="font-medium text-ink">gpt-4o-mini</span> scores urgency from live
+              <span className="font-medium text-ink">gpt-4o</span> scores urgency from live
               scan fields, then deterministic policy keeps or downgrades{" "}
               <code className="font-mono text-[11px]">auto_renew</code>. Ranking never charges.
             </p>

@@ -11,6 +11,7 @@ test("landing page renders hero and dashboard link", () => {
   assert.match(markup, /how-it-works/);
   assert.match(markup, /One pipeline, four hard gates/);
   assert.match(markup, /Rank with OpenAI/);
-  assert.match(markup, /gpt-4o-mini/);
+  assert.match(markup, /gpt-4o/);
+  assert.doesNotMatch(markup, /gpt-4o-mini/);
   assert.match(markup, /Renew autonomously/);
 });

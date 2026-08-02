@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import random
 import re
 import time
@@ -30,8 +31,9 @@ from backend.db.models import AgentDecision, Domain
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gpt-4o-mini"
-REQUEST_TIMEOUT_SECONDS = 15.0
+# Default to gpt-4o for sharper renewal triage; override with OPENAI_RANKING_MODEL.
+DEFAULT_MODEL = "gpt-4o"
+REQUEST_TIMEOUT_SECONDS = 30.0
 MAX_ATTEMPTS = 3
 MAX_DOMAINS = 20
 MAX_REQUEST_ITEMS = MAX_DOMAINS * 5
@@ -43,6 +45,16 @@ OUTPUT_TOKEN_OVERHEAD = 256
 OUTPUT_TOKENS_PER_RESULT = 192
 MAX_OUTPUT_TOKEN_CEILING = 4_096
 FALLBACK_SCORE = 50
+
+
+def ranking_model() -> str:
+    """Return the configured OpenAI ranking model (defaults to gpt-4o)."""
+    configured = os.environ.get("OPENAI_RANKING_MODEL", "").strip()
+    return configured or DEFAULT_MODEL
+
+
+# Back-compat for tests/importers that read ranking.MODEL.
+MODEL = DEFAULT_MODEL
 
 _SYSTEM_INSTRUCTIONS = """Rank each supplied domain for domain-renewal urgency.
 Return exactly one result per domain ID using the required schema. Confirmed
@@ -310,7 +322,7 @@ def _call_structured_output(
     for attempt in range(MAX_ATTEMPTS):
         try:
             response = client.responses.parse(
-                model=MODEL,
+                model=ranking_model(),
                 instructions=_SYSTEM_INSTRUCTIONS,
                 input=_prompt_payload(facts),
                 text_format=RankingResponse,

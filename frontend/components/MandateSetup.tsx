@@ -113,12 +113,9 @@ export default function MandateSetup({
     initialDomainId(sortedDomains),
   );
   const domainId = controlled ? (controlledDomainId ?? null) : internalDomainId;
-  const [state, setState] = useState<MandateUiState>(
-    initialState ?? (sortedDomains.length ? "idle" : "error"),
-  );
+  const [state, setState] = useState<MandateUiState>(initialState ?? "idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(
-    initialErrorMessage ??
-      (sortedDomains.length ? null : "No domains available for mandate setup."),
+    initialErrorMessage,
   );
   const [approvalUrl, setApprovalUrl] = useState<string | null>(initialApprovalUrl);
 
@@ -130,6 +127,14 @@ export default function MandateSetup({
     return initialDomainId(sortedDomains);
   }, [sortedDomains, domainId]);
 
+  // Domains often arrive after first paint (inventory loading). Do not sticky-lock
+  // an empty-domain error once the inventory is populated.
+  const displayState: MandateUiState =
+    sortedDomains.length === 0 ? "error" : state;
+  const displayErrorMessage =
+    sortedDomains.length === 0
+      ? "No domains available for mandate setup."
+      : errorMessage;
   useEffect(() => {
     onMandateCoverageChange?.(
       selectedDomainId,
@@ -246,7 +251,7 @@ export default function MandateSetup({
     <section
       aria-labelledby="mandate-setup-heading"
       className="aegis-panel space-y-5 rounded-xl p-6 sm:p-7"
-      data-state={state}
+      data-state={displayState}
     >
       <div className="space-y-2 border-b border-line pb-5">
         <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
@@ -336,7 +341,8 @@ export default function MandateSetup({
             </>
           ) : null}
 
-          {state === "cancelled" || state === "error" || state === "expired" ? (
+          {sortedDomains.length > 0 &&
+          (state === "cancelled" || state === "error" || state === "expired") ? (
             <button type="button" className="aegis-btn aegis-btn-secondary" onClick={onReset}>
               Try again
             </button>
@@ -371,7 +377,7 @@ export default function MandateSetup({
         </p>
       ) : null}
 
-      {state === "active" ? (
+      {state === "active" && sortedDomains.length > 0 ? (
         <p
           role="status"
           className="rounded-lg border border-ok/25 bg-ok-soft px-3 py-2 text-sm text-ok"
@@ -381,9 +387,9 @@ export default function MandateSetup({
         </p>
       ) : null}
 
-      {state === "expired" || state === "error" ? (
+      {(displayState === "expired" || displayState === "error") && displayErrorMessage ? (
         <p role="alert" className="rounded-lg border border-danger/20 bg-danger-soft px-3 py-2 text-sm text-danger">
-          {errorMessage}
+          {displayErrorMessage}
         </p>
       ) : null}
     </section>

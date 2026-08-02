@@ -170,7 +170,8 @@ endpoint does not enumerate other subdomains.
 `rank_domains(domain_ids)` reads only the requested domains' normalized name,
 domain and certificate expiry proximity, DNS-risk flag and bounded sanitized
 detail, plus at most two recent recommendations per domain. It submits those
-allowlisted facts in one batch to `gpt-4o-mini` through the OpenAI SDK's strict
+allowlisted facts in one batch to `gpt-4o` through the OpenAI SDK's strict
+Structured Outputs path (`OPENAI_RANKING_MODEL` can override; default is `gpt-4o`).
 Structured Outputs parsing and returns one typed result per requested ID:
 `domain_id`, integer `criticality_score` from 0–100, `decision` (`auto_renew`,
 `flag_for_review`, or `ignore`), and a bounded reason. Set `OPENAI_API_KEY` in

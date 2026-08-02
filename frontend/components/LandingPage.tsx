@@ -16,7 +16,7 @@ const pipeline = [
   {
     step: "03",
     title: "Rank with OpenAI",
-    body: "gpt-4o-mini scores urgency from live scan fields; deterministic policy keeps or downgrades auto_renew. Ranking never spends money.",
+    body: "gpt-4o scores urgency from live scan fields; deterministic policy keeps or downgrades auto_renew. Ranking never spends money.",
   },
   {
     step: "04",

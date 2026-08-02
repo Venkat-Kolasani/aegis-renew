@@ -896,7 +896,8 @@ def test_request_uses_locked_model_schema_and_output_bounds(
     rank_domains([domain.id])
 
     call = client.responses.calls[0]
-    assert call["model"] == "gpt-4o-mini"
+    assert call["model"] == ranking.DEFAULT_MODEL
+    assert call["model"] == "gpt-4o"
     assert call["text_format"] is RankingResponse
     assert call["max_output_tokens"] == ranking._output_token_budget(1)
     assert call["store"] is False

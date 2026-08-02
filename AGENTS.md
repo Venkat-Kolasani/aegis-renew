@@ -118,8 +118,8 @@ def on_agent_decision(domain: str, decision: str, amount: float, reason: str) ->
 - Frontend: Next.js (App Router) + Tailwind CSS
 - Database: Postgres, accessed via SQLAlchemy or raw `psycopg`, whichever is
   already in use in the file you're editing, do not mix both in the same file
-- LLM: OpenAI API, `gpt-4o-mini` for ranking calls by default, escalate to
-  `gpt-4o` only if a ranking call clearly needs it
+- LLM: OpenAI API, `gpt-4o` for ranking calls by default (`OPENAI_RANKING_MODEL`
+  override supported). Prefer `gpt-4o-mini` only if cost/latency forces it.
 - Payments: Prava SDK per the official skill repo, see section above
 - Detection libraries: `dnspython`, `requests`, RDAP client (`whoisit` or
   equivalent), crt.sh queried via its public JSON endpoint

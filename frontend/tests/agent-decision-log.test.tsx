@@ -57,7 +57,8 @@ test("renders auto_renew, flag_for_review, and ignore distinctly with full reaso
     /Expiry horizons are healthy and no confirmed DNS takeover risk is present\./,
   );
   assert.match(markup, /Not a payment/);
-  assert.match(markup, /gpt-4o-mini/);
+  assert.match(markup, /gpt-4o/);
+  assert.doesNotMatch(markup, /gpt-4o-mini/);
   assert.match(markup, /OpenAI/);
   assert.doesNotMatch(
     markup,
