@@ -10,6 +10,11 @@ from typing import Any
 
 import httpx
 
+from backend.payments.demo_constants import (
+    DEMO_MERCHANT_COUNTRY,
+    DEMO_MERCHANT_NAME,
+    DEMO_MERCHANT_URL,
+)
 from backend.payments.env import load_local_env
 from backend.payments.prava_mandate import (
     PravaConfigurationError,
@@ -113,7 +118,13 @@ def list_provider_mandates(*, customer_id: str) -> list[ProviderMandate]:
 
 
 def _parse_provider_mandate(item: dict[str, Any]) -> ProviderMandate | None:
-    """Parse one provider row without retaining unexpected response fields."""
+    """Parse one provider row without retaining unexpected response fields.
+
+    Official list payloads expose ``approvedAmount`` and ``merchantName`` and may
+    omit merchant URL/country. For the disclosed DEMO registrar only, missing
+    URL/country are filled from server-side DEMO constants so coverage can match
+    the fixed quote. Non-DEMO sparse rows remain unusable.
+    """
     merchant = _mapping_value(item, "merchant", "merchantDetails", "merchant_details")
     provider_id = _string_value(item, "id", "mandateId", "mandate_id")
     if merchant is None:
@@ -136,8 +147,16 @@ def _parse_provider_mandate(item: dict[str, Any]) -> ProviderMandate | None:
             "merchantCountry",
             "merchant_country",
         )
+    # Official docs use approvedAmount; keep older/camel/snake aliases too.
     cap_amount = _decimal_value(
-        item, "capAmount", "cap_amount", "maxAmount", "max_amount", "amount"
+        item,
+        "approvedAmount",
+        "approved_amount",
+        "capAmount",
+        "cap_amount",
+        "maxAmount",
+        "max_amount",
+        "amount",
     )
     currency = _string_value(item, "currency")
     frequency = _string_value(
@@ -146,6 +165,11 @@ def _parse_provider_mandate(item: dict[str, Any]) -> ProviderMandate | None:
     status = _string_value(item, "status")
     valid_until = _datetime_value(
         item, "validUntil", "valid_until", "expiresAt", "expires_at"
+    )
+    merchant_url, merchant_country = _fill_demo_merchant_identity(
+        merchant_name=merchant_name,
+        merchant_url=merchant_url,
+        merchant_country=merchant_country,
     )
     if not all(
         (
@@ -171,6 +195,22 @@ def _parse_provider_mandate(item: dict[str, Any]) -> ProviderMandate | None:
         frequency=frequency.lower(),
         status=status.lower(),
         valid_until=valid_until,
+    )
+
+
+def _fill_demo_merchant_identity(
+    *,
+    merchant_name: str,
+    merchant_url: str,
+    merchant_country: str,
+) -> tuple[str, str]:
+    """Fill DEMO registrar URL/country when Prava list omits them."""
+    if merchant_name.casefold() != DEMO_MERCHANT_NAME.casefold():
+        return merchant_url, merchant_country
+    # DEMO: list responses may only carry merchantName; bind to disclosed quote.
+    return (
+        merchant_url or DEMO_MERCHANT_URL,
+        merchant_country or DEMO_MERCHANT_COUNTRY,
     )
 
 
