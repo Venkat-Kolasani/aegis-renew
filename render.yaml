@@ -1,0 +1,33 @@
+# JOINT-7: Render blueprint for Aegis API + Postgres.
+# Secrets (OPENAI_API_KEY, PRAVA_*) must be set in the Render dashboard — never committed.
+# Frontend deploys separately (Vercel) with AEGIS_API_ORIGIN pointing at this API.
+
+services:
+  - type: web
+    name: aegis-api
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHONPATH
+        value: /app
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aegis-db
+          property: connectionString
+      - key: PRAVA_SANDBOX_BASE_URL
+        value: https://sandbox.api.prava.space
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: PRAVA_PUBLISHABLE_KEY
+        sync: false
+      - key: PRAVA_SECRET_KEY
+        sync: false
+
+databases:
+  - name: aegis-db
+    plan: free
+    region: oregon
+    postgresMajorVersion: "16"

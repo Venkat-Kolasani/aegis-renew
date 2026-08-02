@@ -4,6 +4,58 @@ Aegis is an agentic infrastructure-renewal prototype for the Prava Agentic
 Commerce Hackathon. It detects domain, TLS, and DNS risk, ranks urgency, and
 executes a configured renewal only when a user-approved Prava mandate covers it.
 
+## One-minute overview
+
+**Problem.** Domains and certificates expire quietly; dangling DNS can become
+subdomain-takeover risk. Teams notice too late and renew manually under pressure.
+
+**What Aegis does.** Scan authorized hosts → explainable LLM ranking →
+deterministic coverage policy → charge a **user-approved, merchant-locked
+yearly Prava mandate** → complete checkout → show the sanitized audit result.
+
+**Hackathon claim.** Autonomous yearly renewal under a standing mandate in
+**Prava sandbox**, with a disclosed **self-owned DEMO registrar** (not a live
+Namecheap/etc. storefront). Ranking never spends; only covered execute does.
+
+**Evidence.**
+- JOINT-2: [`docs/evidence/joint2-commerce-proof.json`](docs/evidence/joint2-commerce-proof.json)
+- VENKAT-3: [`docs/evidence/venkat3-demo-checkout-proof.json`](docs/evidence/venkat3-demo-checkout-proof.json)
+- JOINT-3 route smoke: [`docs/evidence/joint3-covered-payment-proof.json`](docs/evidence/joint3-covered-payment-proof.json)
+- Demo script: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)
+
+## Judge quickstart (local)
+
+```bash
+# 1) Python env + deps
+python -m venv .venv && source .venv/bin/activate
+python -m pip install -r backend/requirements.txt
+
+# 2) Postgres + schema (Docker example)
+docker run -d --name aegis-postgres \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=aegis \
+  -p 5432:5432 postgres:16
+# wait until ready, then:
+docker exec -i aegis-postgres psql -U postgres -d aegis < backend/db/schema.sql
+
+# 3) Secrets (never commit)
+cp .env.example .env   # fill OPENAI_API_KEY, PRAVA_* sandbox keys, DATABASE_URL
+
+# 4) API + UI
+set -a && source .env && set +a
+uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+# other terminal:
+cd frontend && AEGIS_API_ORIGIN=http://127.0.0.1:8000 npm run dev
+# open http://localhost:3000/dashboard
+
+# 5) Cold-start inventory (no manual SQL seeding)
+chmod +x scripts/cold_start_demo.sh
+AEGIS_API_ORIGIN=http://127.0.0.1:8000 ./scripts/cold_start_demo.sh
+```
+
+Then: approve yearly DEMO mandate once → sync → rank → execute covered renewal.
+Use Python 3.11+ with `psycopg` installed for Postgres-backed runs and the
+gated smoke (`RUN_PRAVA_SMOKE=1`).
+
 ## Backend development
 
 Create a Python 3.11+ virtual environment, install the backend dependencies,
@@ -297,6 +349,27 @@ The route smoke writes `docs/evidence/joint3-covered-payment-proof.json` only
 after a real successful run; absence of that file means JOINT-3 has not yet been
 proved live.
 
+### JOINT-3 covered execution proof (sandbox)
+
+Sanitized evidence: [`docs/evidence/joint3-covered-payment-proof.json`](docs/evidence/joint3-covered-payment-proof.json).
+
+| Step | Result |
+|---|---|
+| Route | `POST /api/payments/execute` with `{domain_id}` only |
+| Fresh coverage recheck | Active yearly DEMO mandate + server DEMO quote `$18 USD` |
+| Mandate charge | Real sandbox credentials minted ephemerally |
+| Merchant checkout | DEMO registrar completed (`DEMO-REN-…`) |
+| Prava report | `APPROVED` confirmed |
+| Persistence | `payment_attempts.status=completed` with sanitized order ref |
+| Duplicate guard | Second execute returns conflict / already recorded |
+
+Gated smoke (excluded from normal CI; needs interactive mandate already active):
+
+```bash
+set -a && source .env && set +a
+RUN_PRAVA_SMOKE=1 python -m pytest backend/tests/test_prava_demo_smoke.py -q
+```
+
 ### Covered payment execution (JOINT-3)
 
 `POST /api/payments/execute` has a strict body containing only `domain_id`:
@@ -442,16 +515,68 @@ evidence only after a real success.
 
 ### Production access
 
-Sandbox mandate → charge → completed DEMO checkout → `APPROVED` is evidenced.
-You may now submit the Prava production form if you want prod keys: https://tally.so/r/eqBNZE
+Sandbox mandate → charge → completed DEMO checkout → `APPROVED` is evidenced
+for the hackathon demo. That is **not** authorization to flip to live keys or
+real-money production. Production access (if desired later) still requires
+Prava’s go-live process: https://tally.so/r/eqBNZE
+
+## Cold-start demo dataset (JOINT-4)
+
+Use [`scripts/cold_start_demo.sh`](scripts/cold_start_demo.sh) against a running
+API. It scans six public observation hosts plus the DEMO mandate host
+`billing.aegis-demo.test`. It does **not** invent high-confidence takeover
+findings against unowned targets.
+
+Uncovered domains (no synced mandate) are expected to rank as
+`flag_for_review` / `ignore` — that is the safety path, not a bug. The covered
+renewal demo uses the DEMO host after mandate sync.
+
+Skipped / gated tests:
+
+| Test | Status |
+|---|---|
+| Ordinary backend + frontend suites | Required in CI |
+| `backend/tests/test_prava_demo_smoke.py` | Skipped unless `RUN_PRAVA_SMOKE=1` |
+
+## Deployment (JOINT-7)
+
+- Backend blueprint: [`render.yaml`](render.yaml) + [`Dockerfile`](Dockerfile)
+  (API + Postgres). Set `OPENAI_API_KEY`, `PRAVA_PUBLISHABLE_KEY`, and
+  `PRAVA_SECRET_KEY` only in the Render dashboard.
+- Frontend: deploy the `frontend/` Next.js app (e.g. Vercel) with server-only
+  `AEGIS_API_ORIGIN=https://<your-aegis-api-host>` so the browser keeps using
+  same-origin `/aegis-api/*` rewrites (no Prava secret in the browser).
+- Apply `backend/db/schema.sql` once to the provisioned database before first use.
+- Never commit `.env`. Free Render web services sleep after idle; cold starts are expected.
+
+## Honest limitations
+
+- Merchant is a **self-owned DEMO registrar**, not a real registrar UCP checkout.
+- Mandate merchant URL remains `https://example.com` (disclosed).
+- No end-user authentication on payment routes (sandbox/demo-scoped).
+- A completed payment attempt currently blocks another charge for that domain
+  (demo idempotency; annual renewal cycle needs a later design).
+- Live Prava production keys / real-money checkout are out of scope for this
+  submission until a real merchant path and auth exist.
 
 ## Build disclosure
 
 The Aegis idea and public integration research existed before the event. All
-application code in this repository is being written during the hackathon build
-window. Payment claims require real Prava sandbox evidence and a completed
-merchant checkout; no payment outcome is mocked. JOINT-2 proved mandate setup
-and credential minting. VENKAT-3 proved the disclosed DEMO registrar checkout
-path. JOINT-3 adds an offline-tested covered route and a separate CI-excluded
-route-level sandbox smoke; mocked tests are never presented as transaction
-proof.
+application code in this repository was written during the hackathon build
+window. Conceptual inspiration (agent architectures / memory-graph research)
+informed the design only; no prior application code was copied into this repo.
+
+Payment claims use real Prava **sandbox** evidence and a completed DEMO merchant
+checkout; no payment outcome is mocked. JOINT-2 proved mandate setup and
+credential minting. VENKAT-3 proved the disclosed DEMO registrar adapter.
+JOINT-3 proved `POST /api/payments/execute` end-to-end with sanitized evidence
+at [`docs/evidence/joint3-covered-payment-proof.json`](docs/evidence/joint3-covered-payment-proof.json).
+
+### Tracks
+
+Built to support judging for **Prava Overall**, **OpenAI**, **Visa Intelligent
+Commerce**, and **Localhost**. Linq / NANDA / Senso were not added.
+
+### Team
+
+Venkat (frontend + Prava payments) and Vivek (detection + ranking/policy).
