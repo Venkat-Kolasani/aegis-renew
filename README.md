@@ -540,13 +540,21 @@ Skipped / gated tests:
 
 ## Deployment (JOINT-7)
 
-- Backend blueprint: [`render.yaml`](render.yaml) + [`Dockerfile`](Dockerfile)
+- Backend blueprint: [`render.yaml`](render.yaml) + [`scripts/start_api.sh`](scripts/start_api.sh)
   (API + Postgres). Set `OPENAI_API_KEY`, `PRAVA_PUBLISHABLE_KEY`, and
   `PRAVA_SECRET_KEY` only in the Render dashboard.
-- Frontend: deploy the `frontend/` Next.js app (e.g. Vercel) with server-only
-  `AEGIS_API_ORIGIN=https://<your-aegis-api-host>` so the browser keeps using
-  same-origin `/aegis-api/*` rewrites (no Prava secret in the browser).
-- Apply `backend/db/schema.sql` once to the provisioned database before first use.
+- Provisioned in this build:
+  - Postgres: [aegis-db dashboard](https://dashboard.render.com/d/dpg-d9ne3t61egvs73ft24e0-a)
+  - API service: [aegis-api dashboard](https://dashboard.render.com/web/srv-d9ne4r3ncjis73a073l0)
+    → public URL `https://aegis-api-imf0.onrender.com` (after start command + DB link succeed)
+- **Required one-time Render dashboard fixes for the live API:**
+  1. Service → Settings → Start Command = `bash scripts/start_api.sh`
+  2. Environment → Add from Database → select `aegis-db` as `DATABASE_URL`
+  3. Shell/psql once: apply `backend/db/schema.sql`
+  4. Manual Deploy → clear build cache / deploy latest `main`
+- Frontend: deploy `frontend/` (e.g. Vercel) with server-only
+  `AEGIS_API_ORIGIN=https://aegis-api-imf0.onrender.com` so the browser keeps
+  using same-origin `/aegis-api/*` rewrites (no Prava secret in the browser).
 - Never commit `.env`. Free Render web services sleep after idle; cold starts are expected.
 
 ## Honest limitations
