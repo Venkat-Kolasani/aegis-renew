@@ -1,0 +1,23 @@
+{
+  "proof_id": "JOINT-3",
+  "recorded_at_utc": "2026-08-02T06:12:24.764412+00:00",
+  "environment": "sandbox",
+  "route": "POST /api/payments/execute",
+  "merchant": {
+    "path": "self_owned_demo_merchant",
+    "name": "Aegis Demo Registrar",
+    "product": "Domain renewal \u2014 $18/year"
+  },
+  "flow": {
+    "fresh_coverage_rechecked": true,
+    "mandate_charge": "credentials_minted_ephemerally",
+    "merchant_checkout_completed": true,
+    "merchant_order_ref": "DEMO-REN-20260802-F399890C",
+    "prava_report": "APPROVED_CONFIRMED",
+    "payment_attempt_persisted": true
+  },
+  "notes": [
+    "Generated only by the manually enabled live route smoke.",
+    "No credentials, raw mandate ids, or provider transaction ids are stored."
+  ]
+}

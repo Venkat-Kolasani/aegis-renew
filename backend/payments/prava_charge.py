@@ -184,9 +184,18 @@ def _parse_provider_mandate(item: dict[str, Any]) -> ProviderMandate | None:
     ) or cap_amount is None or valid_until is None:
         logger.warning("Ignored malformed Prava mandate row")
         return None
+    # List/filter uses the external user id (session user_id). Prava also returns
+    # an internal cus_ customerId; prefer the external id for Aegis matching.
+    customer_id = _string_value(
+        item,
+        "externalUserId",
+        "external_user_id",
+        "customerId",
+        "customer_id",
+    )
     return ProviderMandate(
         provider_id=provider_id,
-        customer_id=_string_value(item, "customerId", "customer_id"),
+        customer_id=customer_id or None,
         merchant_name=merchant_name,
         merchant_url=merchant_url,
         merchant_country=merchant_country.upper(),

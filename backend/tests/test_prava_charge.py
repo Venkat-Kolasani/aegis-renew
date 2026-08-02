@@ -88,6 +88,8 @@ def test_list_provider_mandates_parses_official_docs_shaped_payload(
                         "currency": "USD",
                         "validUntil": "2031-07-31T08:44:37.392Z",
                         "renewsAt": "2027-08-01T08:44:37.392Z",
+                        "customerId": "cus_internal",
+                        "externalUserId": "aegis_domain_1",
                     }
                 ]
             }
@@ -99,6 +101,7 @@ def test_list_provider_mandates_parses_official_docs_shaped_payload(
     assert len(result) == 1
     mandate = result[0]
     assert mandate.provider_id == "mdt_123"
+    assert mandate.customer_id == "aegis_domain_1"
     assert mandate.cap_amount == Decimal("18.00")
     assert mandate.merchant_name == "Aegis Demo Registrar"
     assert mandate.merchant_url == "https://example.com"
